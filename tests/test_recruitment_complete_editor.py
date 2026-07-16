@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 
 from jinja2 import Environment
 
-from owkr_gather_bot.application.recruitment_complete_editor import (
+from src.application.recruitment_complete_editor import (
     RecruitmentCompleteCopy,
     build_recruitment_complete_template,
     dump_recruitment_complete_copy,

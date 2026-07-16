@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from owkr_gather_bot.config import (
+from src.config import (
     AppConfig,
     ChannelConfig,
     DefaultConfig,
     ManagerConfig,
     MessageConfig,
 )
-from owkr_gather_bot.domain.models import MatchSession, MatchStatus, PersistenceMutation
+from src.domain.models import MatchSession, MatchStatus, PersistenceMutation
 
 
 UTC = timezone.utc
@@ -40,7 +40,7 @@ def make_config() -> AppConfig:
         channels=ChannelConfig(command=101, announcement=102, tier=103, admin=104),
         admin_user_ids=frozenset({200}),
         admin_role_ids=frozenset(),
-        defaults=DefaultConfig(),
+        defaults=DefaultConfig(lobby_voice_channel_id=105),
         messages=MessageConfig(
             participation_notice="✅ 반응",
             tier_notice="티어 작성",
@@ -53,6 +53,7 @@ def make_config() -> AppConfig:
 def make_session(
     *,
     match_id: str = "match-1",
+    match_code: str = "A7K2",
     now: datetime | None = None,
     status: MatchStatus = MatchStatus.RECRUITING,
     completion_notified_at: datetime | None = None,
@@ -62,6 +63,7 @@ def make_session(
     starts_at = now + timedelta(hours=3)
     return MatchSession(
         id=match_id,
+        match_code=match_code,
         guild_id=100,
         manager_user_id=200,
         command_channel_id=101,
@@ -80,4 +82,3 @@ def make_session(
         created_at=now,
         updated_at=now,
     )
-

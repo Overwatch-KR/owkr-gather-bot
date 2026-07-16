@@ -4,10 +4,17 @@ import tempfile
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from owkr_gather_bot.application.coordinator import CreateMatchRequest, SessionCoordinator
-from owkr_gather_bot.application.scheduler import MatchScheduler
-from owkr_gather_bot.domain.models import (
+from src.application.coordinator import (
+    CreateMatchRequest,
+    DuplicateSourceRequest,
+    SessionCoordinator,
+)
+from src.application.notification_worker import NotificationWorker
+from src.application.rendering import NotificationRenderer
+from src.application.scheduler import MatchScheduler
+from src.domain.models import (
     MatchStatus,
     NotificationKind,
     ReactionAction,
@@ -16,9 +23,10 @@ from owkr_gather_bot.domain.models import (
     RosterEntry,
     RosterStatus,
     TierUpsertMutation,
+    WaitlistReason,
 )
-from owkr_gather_bot.infrastructure.sqlite_repository import SQLiteMatchRepository
-from owkr_gather_bot.parsing.match_command import ParsedMatchCommand
+from src.infrastructure.sqlite_repository import SQLiteMatchRepository
+from src.parsing.match_command import ParsedMatchCommand
 
 from tests.helpers import MutableClock, RecordingWriter, make_config, make_session
 
@@ -82,17 +90,18 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-    async def test_new_match_stops_previous_actor(self) -> None:
-        first = await self.coordinator.create_replacing_active(
+    async def test_new_match_keeps_previous_actor(self) -> None:
+        first = await self.coordinator.create_match(
             CreateMatchRequest(200, 101, self.parsed(2))
         )
         await self.coordinator.activate(first, 1001)
-        old_actor = self.coordinator.active_actor
+        old_actor = self.coordinator.actor_for_match(first.id)
         self.assertIsNotNone(old_actor)
 
-        second = await self.coordinator.create_replacing_active(
+        second = await self.coordinator.create_match(
             CreateMatchRequest(200, 101, self.parsed(3))
         )
+        await self.coordinator.activate(second, 1002)
         accepted = old_actor.ingest(
             ReactionEvent(
                 match_id=first.id,
@@ -102,9 +111,309 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
                 received_at=self.clock.now(),
             )
         )
-        self.assertFalse(accepted)
-        self.assertEqual(second.status, MatchStatus.CREATED)
-        self.assertEqual((await self.repository.get_match(first.id)).status, MatchStatus.CANCELED)
+        self.assertTrue(accepted)
+        await old_actor.drain()
+        self.assertEqual(second.status, MatchStatus.RECRUITING)
+        self.assertEqual((await self.repository.get_match(first.id)).status, MatchStatus.RECRUITING)
+        self.assertEqual(len(self.coordinator.active_sessions), 2)
+
+    async def test_same_time_identical_matches_have_independent_codes_and_actors(
+        self,
+    ) -> None:
+        parsed = self.parsed(2)
+        sessions = []
+        for index in range(3):
+            session = await self.coordinator.create_match(
+                CreateMatchRequest(200, 101, parsed)
+            )
+            await self.coordinator.activate(session, 1100 + index)
+            sessions.append(session)
+
+        self.assertEqual(len({session.id for session in sessions}), 3)
+        self.assertEqual(len({session.match_code for session in sessions}), 3)
+        self.assertTrue(
+            all(
+                set(session.match_code).isdisjoint({"0", "O", "1", "I", "L"})
+                for session in sessions
+            )
+        )
+        for index, session in enumerate(sessions):
+            actor = self.coordinator.actor_for_match(session.id)
+            for offset in range(18):
+                user_id = index * 100 + offset + 1
+                self.assertTrue(
+                    actor.ingest(
+                        ReactionEvent(
+                            match_id=session.id,
+                            discord_user_id=user_id,
+                            discord_display_name=f"user-{user_id}",
+                            action=ReactionAction.ADD,
+                            received_at=self.clock.now()
+                            + timedelta(milliseconds=offset),
+                        )
+                    )
+                )
+            await actor.drain()
+            self.assertEqual(len(actor.current_confirmed()), 10)
+            self.assertEqual(len(actor.current_waitlist()), 8)
+            self.assertEqual(
+                [entry.reaction_order for entry in actor.current_confirmed() + actor.current_waitlist()],
+                list(range(1, 19)),
+            )
+
+    async def test_same_user_same_time_is_waitlisted_with_conflict(self) -> None:
+        parsed = self.parsed(2)
+        first = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, parsed)
+        )
+        second = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, parsed)
+        )
+        await self.coordinator.activate(first, 1201)
+        await self.coordinator.activate(second, 1202)
+
+        first_actor = self.coordinator.actor_for_match(first.id)
+        second_actor = self.coordinator.actor_for_match(second.id)
+        first_actor.ingest(
+            ReactionEvent(
+                match_id=first.id,
+                discord_user_id=77,
+                discord_display_name="same-user",
+                action=ReactionAction.ADD,
+                received_at=self.clock.now(),
+            )
+        )
+        await first_actor.drain()
+        second_actor.ingest(
+            ReactionEvent(
+                match_id=second.id,
+                discord_user_id=77,
+                discord_display_name="same-user",
+                action=ReactionAction.ADD,
+                received_at=self.clock.now() + timedelta(milliseconds=1),
+            )
+        )
+        await second_actor.drain()
+
+        self.assertEqual(first_actor.current_confirmed()[0].discord_user_id, 77)
+        conflict = second_actor.current_waitlist()[0]
+        self.assertEqual(conflict.waitlist_reason, WaitlistReason.SCHEDULE_CONFLICT)
+        self.assertEqual(conflict.conflict_match_id, first.id)
+
+    async def test_canceling_one_match_keeps_other_actor_running(self) -> None:
+        first = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(2))
+        )
+        second = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(3))
+        )
+        await self.coordinator.activate(first, 1301)
+        await self.coordinator.activate(second, 1302)
+
+        await self.coordinator.cancel_match(first.id)
+
+        self.assertIsNone(self.coordinator.actor_for_match(first.id))
+        second_actor = self.coordinator.actor_for_match(second.id)
+        self.assertIsNotNone(second_actor)
+        self.assertTrue(
+            second_actor.ingest(
+                ReactionEvent(
+                    match_id=second.id,
+                    discord_user_id=88,
+                    discord_display_name="still-active",
+                    action=ReactionAction.ADD,
+                    received_at=self.clock.now(),
+                )
+            )
+        )
+
+    async def test_duplicate_source_request_returns_existing_match(self) -> None:
+        request = CreateMatchRequest(
+            200,
+            101,
+            self.parsed(2),
+            source_request_id="999",
+            source_request_type="MESSAGE",
+        )
+        first = await self.coordinator.create_match(request)
+
+        with self.assertRaises(DuplicateSourceRequest) as raised:
+            await self.coordinator.create_match(request)
+
+        self.assertEqual(raised.exception.session.id, first.id)
+        self.assertEqual(len(await self.repository.get_active_matches(100)), 1)
+
+    async def test_restart_restores_all_active_actors_and_message_routes(self) -> None:
+        first = make_session(
+            match_id="restore-a",
+            match_code="A7K2",
+        )
+        second = make_session(
+            match_id="restore-b",
+            match_code="M4Q8",
+            now=first.created_at + timedelta(minutes=1),
+        )
+        second.announcement_message_id = 1001
+        first.tier_anchor_message_id = 2000
+        second.tier_anchor_message_id = 2001
+        await self.repository.create_match(first)
+        await self.repository.create_match(second)
+
+        await self.coordinator.restore()
+
+        self.assertEqual(
+            {session.id for session in self.coordinator.active_sessions},
+            {"restore-a", "restore-b"},
+        )
+        self.assertEqual(
+            self.coordinator.actor_for_announcement(1000).session.id,
+            "restore-a",
+        )
+        self.assertEqual(
+            self.coordinator.actor_for_announcement(1001).session.id,
+            "restore-b",
+        )
+        self.assertEqual(
+            self.coordinator.session_for_tier_anchor(2000).id,
+            "restore-a",
+        )
+        self.assertEqual(
+            self.coordinator.session_for_tier_anchor(2001).id,
+            "restore-b",
+        )
+
+    async def test_one_session_scheduler_failure_does_not_block_another(self) -> None:
+        first = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(2))
+        )
+        second = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(3))
+        )
+        await self.coordinator.activate(first, 1401)
+        await self.coordinator.activate(second, 1402)
+        first.lobby_at = self.clock.now()
+        second.lobby_at = self.clock.now()
+        scheduler = MatchScheduler(
+            self.coordinator,
+            self.repository,
+            self.writer,  # type: ignore[arg-type]
+            self.clock,
+        )
+        enqueue = AsyncMock(side_effect=[RuntimeError("first failed"), None])
+
+        with patch.object(
+            self.repository,
+            "enqueue_lobby_notification",
+            enqueue,
+        ):
+            await scheduler.tick()
+
+        self.assertEqual(enqueue.await_count, 2)
+
+    async def test_starting_one_match_keeps_other_session_active(self) -> None:
+        first = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(2))
+        )
+        second = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(3))
+        )
+        await self.coordinator.activate(first, 1501)
+        await self.coordinator.activate(second, 1502)
+
+        await self.coordinator.start_match(first.id)
+
+        self.assertIsNone(self.coordinator.actor_for_match(first.id))
+        self.assertIsNotNone(self.coordinator.actor_for_match(second.id))
+        self.assertEqual(
+            (await self.repository.get_match(first.id)).status,
+            MatchStatus.STARTED,
+        )
+        self.assertEqual(
+            (await self.repository.get_match(second.id)).status,
+            MatchStatus.RECRUITING,
+        )
+
+    async def test_one_notification_failure_does_not_block_other_match(self) -> None:
+        first = make_session(
+            match_id="notify-a",
+            match_code="A7K2",
+        )
+        second = make_session(
+            match_id="notify-b",
+            match_code="M4Q8",
+            now=first.created_at + timedelta(seconds=1),
+        )
+        second.announcement_message_id = 1602
+        await self.repository.create_match(first)
+        await self.repository.create_match(second)
+        await self.add_roster_entry(
+            first.id,
+            1,
+            RosterStatus.CONFIRMED,
+            1,
+            self.clock.now(),
+        )
+        await self.add_roster_entry(
+            second.id,
+            2,
+            RosterStatus.CONFIRMED,
+            1,
+            self.clock.now(),
+        )
+        await self.repository.apply_mutations(
+            [
+                ReactionMutation(
+                    match_id=first.id,
+                    discord_user_id=1,
+                    action=ReactionAction.ADD,
+                    received_at=self.clock.now(),
+                    arrival_seq=2,
+                    outcome="DUPLICATE_ADD",
+                    next_arrival_seq=3,
+                    match_status=MatchStatus.FULL,
+                    completion_user_ids=(1,),
+                ),
+                ReactionMutation(
+                    match_id=second.id,
+                    discord_user_id=2,
+                    action=ReactionAction.ADD,
+                    received_at=self.clock.now(),
+                    arrival_seq=2,
+                    outcome="DUPLICATE_ADD",
+                    next_arrival_seq=3,
+                    match_status=MatchStatus.FULL,
+                    completion_user_ids=(2,),
+                ),
+            ]
+        )
+        transport = MagicMock()
+        transport.send = AsyncMock(
+            side_effect=[RuntimeError("discord failed"), 9002]
+        )
+        worker = NotificationWorker(
+            self.repository,
+            self.coordinator,
+            NotificationRenderer(
+                make_config(),
+                Path(__file__).resolve().parents[1]
+                / "templates"
+                / "recruitment_complete.txt",
+            ),
+            transport,
+            self.clock,
+        )
+
+        processed = await worker.process_once()
+
+        self.assertEqual(processed, 2)
+        self.assertEqual(transport.send.await_count, 2)
+        self.assertIsNone(
+            (await self.repository.get_match(first.id)).recruitment_completed_notified_at
+        )
+        self.assertEqual(
+            (await self.repository.get_match(second.id)).recruitment_completed_notified_at,
+            self.clock.now(),
+        )
 
     async def test_lobby_notification_is_deduplicated_and_start_stops_session(self) -> None:
         full_at = self.clock.now() + timedelta(minutes=1)
@@ -113,7 +422,7 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             full_reached_at=full_at,
             completion_notified_at=full_at + timedelta(seconds=1),
         )
-        await self.repository.create_replacing_active(session)
+        await self.repository.create_match(session)
         await self.add_roster_entry(
             session.id, 1, RosterStatus.CONFIRMED, 1, self.clock.now()
         )
@@ -137,7 +446,7 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
         await scheduler.tick()
         started = await self.repository.get_match(session.id)
         self.assertEqual(started.status, MatchStatus.STARTED)
-        self.assertIsNone(self.coordinator.active_actor)
+        self.assertIsNone(self.coordinator.actor_for_match(session.id))
         latest = await self.repository.get_latest_match(session.guild_id)
         self.assertEqual(latest.status, MatchStatus.STARTED)
 
@@ -148,7 +457,7 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             full_reached_at=opened - timedelta(seconds=1),
             completion_notified_at=opened,
         )
-        await self.repository.create_replacing_active(session)
+        await self.repository.create_match(session)
         await self.add_roster_entry(
             session.id, 1, RosterStatus.CONFIRMED, 1, self.clock.now()
         )
@@ -179,7 +488,7 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             full_reached_at=opened - timedelta(seconds=1),
             completion_notified_at=opened,
         )
-        await self.repository.create_replacing_active(session)
+        await self.repository.create_match(session)
         await self.add_roster_entry(
             session.id, 1, RosterStatus.CONFIRMED, 1, self.clock.now()
         )

@@ -9,25 +9,89 @@ from unittest.mock import AsyncMock, MagicMock
 
 import discord
 
-from owkr_gather_bot.adapters.discord_adapter import (
+from src.adapters.discord_adapter import (
+    CancelMatchConfirmationView,
+    CreateMatchConfirmationView,
+    DiscordNotificationTransport,
     GatherCog,
     ManagementCommandCheckFailure,
-    RecruitmentCompleteAdvancedTemplateModal,
     RecruitmentCompleteCopyModal,
+    RecruitmentCompleteSettingsView,
     _management_authorization_error,
     _normalized_command_payload,
+    match_status_label,
 )
-from owkr_gather_bot.application.recruitment_complete_editor import (
+from src.application.recruitment_complete_editor import (
     RecruitmentCompleteCopy,
     load_recruitment_complete_copy,
     recruitment_complete_copy_path,
 )
-from owkr_gather_bot.application.rendering import NotificationRenderer
+from src.application.rendering import (
+    NotificationRenderer,
+    RenderedNotification,
+)
+from src.application.tier_collector import TierRouteResult, TierRouteStatus
 
 from tests.helpers import make_config, make_session
 
 
 class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
+    async def test_lobby_reminder_mentions_only_users_outside_voice_channel(
+        self,
+    ) -> None:
+        announcement = MagicMock(spec=discord.TextChannel)
+        sent_message = SimpleNamespace(id=9001)
+        announcement.send = AsyncMock(return_value=sent_message)
+        bot = MagicMock()
+        bot.intents.voice_states = True
+        bot.get_channel.return_value = announcement
+        transport = DiscordNotificationTransport(bot)
+        transport._voice_channel_member_ids = AsyncMock(return_value={1})
+        rendered = RenderedNotification(
+            content="앞\n<@1> <@2>\n뒤",
+            allowed_user_ids=(1, 2),
+            voice_channel_id=105,
+            content_before_mentions="앞\n",
+            content_after_mentions="\n뒤",
+        )
+
+        message_id = await transport.send(102, rendered)
+
+        self.assertEqual(message_id, 9001)
+        announcement.send.assert_awaited_once()
+        args, kwargs = announcement.send.await_args
+        self.assertEqual(args[0], "앞\n<@2>\n뒤")
+        allowed = kwargs["allowed_mentions"].to_dict()
+        self.assertEqual(
+            [int(user_id) for user_id in allowed["users"]],
+            [2],
+        )
+        self.assertNotIn("everyone", allowed.get("parse", []))
+        self.assertNotIn("roles", allowed.get("parse", []))
+
+    async def test_lobby_reminder_sends_nothing_when_everyone_is_present(
+        self,
+    ) -> None:
+        announcement = MagicMock(spec=discord.TextChannel)
+        announcement.send = AsyncMock()
+        bot = MagicMock()
+        bot.intents.voice_states = True
+        bot.get_channel.return_value = announcement
+        transport = DiscordNotificationTransport(bot)
+        transport._voice_channel_member_ids = AsyncMock(return_value={1, 2})
+        rendered = RenderedNotification(
+            content="앞\n<@1> <@2>\n뒤",
+            allowed_user_ids=(1, 2),
+            voice_channel_id=105,
+            content_before_mentions="앞\n",
+            content_after_mentions="\n뒤",
+        )
+
+        message_id = await transport.send(102, rendered)
+
+        self.assertIsNone(message_id)
+        announcement.send.assert_not_awaited()
+
     def test_command_payload_normalization_ignores_discord_managed_defaults(self) -> None:
         local = {
             "name": "내전",
@@ -79,9 +143,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
                 "티어미작성알림",
                 "내전상태",
                 "내전취소",
-                "모집완료문구",
-                "모집완료미리보기",
-                "모집완료고급편집",
+                "공지문구",
             },
         )
         for command in commands.values():
@@ -94,6 +156,12 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(match_parameters["모드"].required)
         self.assertTrue(match_parameters["시간"].autocomplete)
         self.assertTrue(match_parameters["모드"].autocomplete)
+        self.assertFalse(commands["티어현황"].parameters[0].required)
+        self.assertFalse(commands["티어미작성알림"].parameters[0].required)
+        self.assertFalse(commands["내전상태"].parameters[0].required)
+        self.assertTrue(commands["내전취소"].parameters[0].required)
+        for name in ("티어현황", "티어미작성알림", "내전상태", "내전취소"):
+            self.assertTrue(commands[name].parameters[0].autocomplete)
 
     async def test_simple_copy_modal_hides_template_variables(self) -> None:
         cog = object.__new__(GatherCog)
@@ -121,20 +189,120 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(label.text, "시작 제목")
         self.assertEqual(label.description, "시작 시간은 봇이 자동으로 넣습니다.")
 
-    async def test_advanced_modal_prefills_raw_template(self) -> None:
-        cog = object.__new__(GatherCog)
-        modal = RecruitmentCompleteAdvancedTemplateModal(
-            cog,
-            "{{ user }} 현재 문구",
+    async def test_notice_settings_are_grouped_in_one_plain_menu(self) -> None:
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user.id = 200
+        view = RecruitmentCompleteSettingsView(
+            object.__new__(GatherCog),
+            interaction,
         )
 
-        self.assertEqual(modal.title, "모집 완료 고급 편집")
-        self.assertEqual(modal.template_input.default, "{{ user }} 현재 문구")
-        self.assertEqual(modal.template_input.max_length, 4000)
-        self.assertEqual(modal.template_input.style, discord.TextStyle.paragraph)
-        label = modal.children[0]
-        self.assertIsInstance(label, discord.ui.Label)
-        self.assertEqual(label.text, "개발자용 템플릿")
+        self.assertEqual(
+            [child.label for child in view.children],
+            ["문구 편집", "미리보기", "닫기"],
+        )
+
+    async def test_confirmation_views_use_plain_manager_labels(self) -> None:
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.id = 999
+        interaction.channel_id = 101
+        interaction.user.id = 200
+        session = make_session()
+        parsed = SimpleNamespace(
+            starts_at=session.starts_at,
+            tier_deadline_at=session.tier_deadline_at,
+            lobby_at=session.lobby_at,
+            mode=session.mode,
+        )
+        cog = object.__new__(GatherCog)
+
+        create_view = CreateMatchConfirmationView(cog, interaction, parsed)
+        cancel_view = CancelMatchConfirmationView(cog, interaction, session)
+
+        self.assertEqual(
+            [child.label for child in create_view.children],
+            ["생성", "취소"],
+        )
+        self.assertEqual(
+            [child.label for child in cancel_view.children],
+            ["내전 취소", "돌아가기"],
+        )
+        self.assertEqual(match_status_label(session.status), "모집 중")
+
+    async def test_create_confirmation_creates_match_and_shows_announcement_link(
+        self,
+    ) -> None:
+        original = MagicMock(spec=discord.Interaction)
+        original.id = 999
+        original.channel_id = 101
+        original.user.id = 200
+        session = make_session()
+        parsed = SimpleNamespace(
+            starts_at=session.starts_at,
+            tier_deadline_at=session.tier_deadline_at,
+            lobby_at=session.lobby_at,
+            mode=session.mode,
+        )
+        cog = object.__new__(GatherCog)
+        cog.create_match = AsyncMock(return_value=session)
+        view = CreateMatchConfirmationView(cog, original, parsed)
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=200),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+
+        await view.children[0].callback(interaction)
+
+        cog.create_match.assert_awaited_once()
+        self.assertEqual(
+            cog.create_match.await_args.kwargs["source_request_id"],
+            "999",
+        )
+        content = interaction.edit_original_response.await_args.kwargs["content"]
+        self.assertIn("모집 공지 보기", content)
+        self.assertIn("/100/102/1000", content)
+        self.assertNotIn(session.id, content)
+
+    async def test_cancel_confirmation_removes_ephemeral_result_after_cleanup(
+        self,
+    ) -> None:
+        original = MagicMock(spec=discord.Interaction)
+        original.user.id = 200
+        original.delete_original_response = AsyncMock()
+        session = make_session()
+        cog = object.__new__(GatherCog)
+        cog._coordinator = SimpleNamespace(
+            cancel_match=AsyncMock(return_value=session)
+        )
+        cog._delete_announcement_message = AsyncMock(return_value=True)
+        cog._delete_tier_anchor_message = AsyncMock(return_value=True)
+        view = CancelMatchConfirmationView(cog, original, session)
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=200),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+
+        await view.children[0].callback(interaction)
+
+        cog._coordinator.cancel_match.assert_awaited_once_with(session.id)
+        original.delete_original_response.assert_awaited_once_with()
+        interaction.edit_original_response.assert_not_awaited()
+
+    async def test_match_autocomplete_returns_short_code_instead_of_uuid(
+        self,
+    ) -> None:
+        session = make_session(match_id="internal-uuid", match_code="A7K2")
+        cog = object.__new__(GatherCog)
+        cog._authorized = lambda interaction: True
+        cog._coordinator = SimpleNamespace(active_sessions=(session,))
+        cog._match_label = lambda selected: "7/16 오후 5시 · 상만 · 일반 내전 · A7K2"
+
+        choices = await cog._match_autocomplete(SimpleNamespace(), "")
+
+        self.assertEqual(choices[0].value, "A7K2")
+        self.assertNotIn("internal-uuid", choices[0].name)
 
     def test_management_check_accepts_configured_role_in_command_channel(self) -> None:
         config = replace(
@@ -169,7 +337,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         command = next(
             command
             for command in GatherCog.__cog_app_commands__
-            if command.name == "모집완료문구"
+            if command.name == "공지문구"
         )
         check = next(
             check
@@ -185,18 +353,6 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(ManagementCommandCheckFailure):
             await check(interaction)
-
-    async def test_template_save_replaces_the_active_file(self) -> None:
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "recruitment_complete.txt"
-            path.write_text("old\n", encoding="utf-8")
-            cog = object.__new__(GatherCog)
-            cog._recruitment_complete_template_path = path
-
-            cog.save_recruitment_complete_template("{{ user }} new")
-
-            self.assertEqual(path.read_text(encoding="utf-8"), "{{ user }} new\n")
-            self.assertFalse(path.with_suffix(".txt.tmp").exists())
 
     async def test_simple_copy_save_updates_editor_data_and_template(self) -> None:
         with TemporaryDirectory() as directory:
@@ -241,7 +397,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         actor.drain = AsyncMock()
         actor.active_user_count.return_value = 0
         coordinator = MagicMock()
-        coordinator.active_actor = actor
+        coordinator.actor_for_announcement.return_value = actor
         message = MagicMock(spec=discord.Message)
         message.add_reaction = AsyncMock()
         message.remove_reaction = AsyncMock()
@@ -267,7 +423,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         actor.drain = AsyncMock()
         actor.active_user_count.return_value = 1
         coordinator = MagicMock()
-        coordinator.active_actor = actor
+        coordinator.actor_for_announcement.return_value = actor
         message = MagicMock(spec=discord.Message)
         message.add_reaction = AsyncMock()
         message.remove_reaction = AsyncMock()
@@ -286,6 +442,46 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         message.add_reaction.assert_not_awaited()
         message.remove_reaction.assert_awaited_once_with("✅", bot.user)
+
+    async def test_bulk_delete_recreates_anchor_and_deletes_bound_tier_only(
+        self,
+    ) -> None:
+        session = make_session()
+        session.tier_anchor_message_id = 700
+        repository = MagicMock()
+        async def recreate(message_id, now):
+            return session if message_id == 700 else None
+
+        repository.request_tier_anchor_recreation = AsyncMock(side_effect=recreate)
+        coordinator = MagicMock()
+        collector = MagicMock()
+        collector.submit_delete = AsyncMock(
+            return_value=TierRouteResult(
+                TierRouteStatus.ACCEPTED,
+                session,
+            )
+        )
+        cog = object.__new__(GatherCog)
+        cog._config = make_config()
+        cog._repository = repository
+        cog._coordinator = coordinator
+        cog._tier_collector = collector
+        cog._clock = SimpleNamespace(now=lambda: session.created_at)
+        payload = SimpleNamespace(
+            guild_id=session.guild_id,
+            channel_id=session.tier_channel_id,
+            message_ids={700, 800},
+        )
+
+        await cog.on_raw_bulk_message_delete(payload)
+
+        self.assertEqual(repository.request_tier_anchor_recreation.await_count, 2)
+        coordinator.clear_tier_anchor_route.assert_called_once_with(700)
+        collector.submit_delete.assert_awaited_once()
+        self.assertEqual(
+            collector.submit_delete.await_args.kwargs["discord_message_id"],
+            800,
+        )
 
     async def test_cancel_cleanup_deletes_the_bot_announcement(self) -> None:
         message = MagicMock(spec=discord.Message)

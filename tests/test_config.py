@@ -8,8 +8,8 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from owkr_gather_bot.config import ConfigurationError, RuntimeConfig, load_runtime_config
-from owkr_gather_bot.main import main
+from src.config import ConfigurationError, RuntimeConfig, load_runtime_config
+from src.main import main
 
 from tests.helpers import make_config
 
@@ -62,6 +62,34 @@ class RuntimeConfigTest(unittest.TestCase):
         self.assertEqual(
             runtime.app.defaults.recruitment_role_id,
             1527196510431871007,
+        )
+
+    def test_lobby_voice_channel_id_is_loaded_as_a_snowflake(self) -> None:
+        with patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "secret"}, clear=True):
+            runtime = load_runtime_config(base_directory=self.root)
+
+        self.assertEqual(
+            runtime.app.defaults.lobby_voice_channel_id,
+            123456789012345686,
+        )
+
+    def test_lobby_voice_channel_id_is_required(self) -> None:
+        config_path = self.root / "config" / "config.yaml"
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace(
+                '  lobby_voice_channel_id: "123456789012345686"\n',
+                "",
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "secret"}, clear=True):
+            with self.assertRaises(ConfigurationError) as raised:
+                load_runtime_config(base_directory=self.root)
+
+        self.assertIn(
+            "defaults.lobby_voice_channel_id is required",
+            str(raised.exception),
         )
 
     def test_existing_environment_has_priority_over_dotenv(self) -> None:
@@ -175,7 +203,7 @@ class RuntimeConfigTest(unittest.TestCase):
     def test_main_stops_with_clear_configuration_error(self) -> None:
         stderr = StringIO()
         error = ConfigurationError("DISCORD_BOT_TOKEN is required")
-        with patch("owkr_gather_bot.main.load_runtime_config", side_effect=error):
+        with patch("src.main.load_runtime_config", side_effect=error):
             with redirect_stderr(stderr):
                 with self.assertRaises(SystemExit) as raised:
                     main()
@@ -209,11 +237,11 @@ class RuntimeConfigTest(unittest.TestCase):
             "MatchScheduler",
             "GatherBot",
         )
-        patches = [patch(f"owkr_gather_bot.main.{target}") for target in targets]
+        patches = [patch(f"src.main.{target}") for target in targets]
         started = [item.start() for item in patches]
         self.addCleanup(lambda: [item.stop() for item in reversed(patches)])
-        with patch("owkr_gather_bot.main.load_runtime_config", return_value=runtime):
-            with self.assertLogs("owkr_gather_bot.main", level="INFO") as captured:
+        with patch("src.main.load_runtime_config", return_value=runtime):
+            with self.assertLogs("src.main", level="INFO") as captured:
                 main()
 
         logs = "\n".join(captured.output)

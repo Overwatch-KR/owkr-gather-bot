@@ -8,12 +8,12 @@ from pathlib import Path
 
 from jinja2.exceptions import SecurityError
 
-from owkr_gather_bot.adapters.discord_adapter import (
+from src.adapters.discord_adapter import (
     allowed_mentions_for,
     build_recruitment_embed,
 )
-from owkr_gather_bot.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer
-from owkr_gather_bot.domain.models import (
+from src.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer
+from src.domain.models import (
     NotificationKind,
     NotificationRecord,
     NotificationStatus,
@@ -132,6 +132,56 @@ class RenderingTest(unittest.TestCase):
         self.assertIn("<@1> <@2>", rendered.content)
         self.assertIn(f"<#{session.tier_channel_id}>", rendered.content)
 
+    def test_lobby_reminder_can_be_rebuilt_for_missing_users_only(self) -> None:
+        session = make_session()
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.LOBBY_REMINDER,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": [1, 2, 3]},
+            dedupe_key="lobby",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.lobby_at,
+        )
+
+        rendered = NotificationRenderer(
+            make_config(), RECRUITMENT_COMPLETE_TEMPLATE
+        ).render(notification, session)
+        filtered = rendered.with_allowed_user_ids((2, 3))
+
+        self.assertEqual(rendered.voice_channel_id, 105)
+        self.assertEqual(filtered.allowed_user_ids, (2, 3))
+        self.assertNotIn("<@1>", filtered.content)
+        self.assertIn("<@2> <@3>", filtered.content)
+        self.assertIn("대기실 1번", filtered.content)
+
+    def test_tier_anchor_identifies_match_and_requires_reply(self) -> None:
+        session = make_session()
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.TIER_ANCHOR,
+            channel_id=session.tier_channel_id,
+            payload={"recreated": False},
+            dedupe_key="tier-anchor",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.created_at,
+        )
+
+        rendered = NotificationRenderer(
+            make_config(), RECRUITMENT_COMPLETE_TEMPLATE
+        ).render(notification, session)
+
+        self.assertIn("`A7K2`", rendered.content)
+        self.assertIn("이 메시지에 답장", rendered.content)
+        self.assertIn(f"<@{session.manager_user_id}>", rendered.content)
+        self.assertEqual(rendered.allowed_user_ids, ())
+        allowed = allowed_mentions_for(rendered.allowed_user_ids).to_dict()
+        self.assertNotIn("users", allowed)
+
     def test_recruitment_complete_template_replaces_custom_variables(self) -> None:
         session = make_session()
         notification = NotificationRecord(
@@ -183,7 +233,7 @@ class RenderingTest(unittest.TestCase):
             template.write_text("수정 문구 {{ tier_channel }}", encoding="utf-8")
             second = renderer.render(notification, session)
 
-        self.assertEqual(first.content, "첫 문구")
+        self.assertEqual(first.content, "**내전 코드** · `A7K2`\n\n첫 문구")
         self.assertIn(f"수정 문구 <#{session.tier_channel_id}>", second.content)
 
     def test_recruitment_complete_preview_uses_sample_schedule(self) -> None:

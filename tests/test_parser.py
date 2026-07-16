@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from owkr_gather_bot.parsing.match_command import (
+from src.parsing.match_command import (
     CommandParseError,
     MatchCommandParser,
     PastTimeError,

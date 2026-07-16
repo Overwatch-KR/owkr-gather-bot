@@ -4,8 +4,8 @@ import asyncio
 import unittest
 from datetime import timedelta
 
-from owkr_gather_bot.application.session_actor import SessionActor
-from owkr_gather_bot.domain.models import ReactionAction, ReactionEvent, RosterStatus
+from src.application.session_actor import SessionActor
+from src.domain.models import ReactionAction, ReactionEvent, RosterStatus
 
 from tests.helpers import RecordingWriter, make_session
 
