@@ -39,11 +39,11 @@ class MatchCommandParserTest(unittest.TestCase):
         parsed = self.parser.parse("18:20", now=self.now, default_mode="일반 내전")
         self.assertEqual(parsed.mode, "일반 내전")
 
-    def test_past_time_is_rejected_with_next_day_proposal(self) -> None:
+    def test_past_time_is_rejected_without_next_day_proposal(self) -> None:
         with self.assertRaises(PastTimeError) as raised:
             self.parser.parse("11:30", now=self.now)
-        proposal = raised.exception.proposal.starts_at
-        self.assertEqual((proposal.day, proposal.hour, proposal.minute), (17, 11, 30))
+        self.assertEqual(str(raised.exception), "입력한 시각이 이미 지났습니다.")
+        self.assertFalse(hasattr(raised.exception, "proposal"))
 
     def test_invalid_time_is_rejected(self) -> None:
         for text in ("24:00", "18:60", "오후13시", "시간없음"):

@@ -68,11 +68,72 @@ class SQLiteMatchRepository(MatchRepository):
         await self._connection.execute("PRAGMA journal_mode = WAL")
         await self._connection.execute("PRAGMA busy_timeout = 5000")
         await self._connection.executescript(migration_path.read_text(encoding="utf-8"))
+        await self._ensure_tier_missing_reminder_schema()
         await self._connection.commit()
         logger.info(
             "SQLite connected and migration completed database=%s migration=%s",
             self._database_path,
             migration_path,
+        )
+
+    async def _ensure_tier_missing_reminder_schema(self) -> None:
+        columns = await self._fetchall("PRAGMA table_info(match_sessions)")
+        column_names = {str(row["name"]) for row in columns}
+        if "tier_missing_reminder_notified_at_utc" not in column_names:
+            await self.connection.execute(
+                "ALTER TABLE match_sessions "
+                "ADD COLUMN tier_missing_reminder_notified_at_utc TEXT"
+            )
+            await self.connection.commit()
+
+        outbox = await self._fetchone(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notification_outbox'"
+        )
+        create_sql = str(outbox["sql"] or "") if outbox is not None else ""
+        if "TIER_MISSING_REMINDER" in create_sql:
+            return
+        await self.connection.executescript(
+            """
+            PRAGMA foreign_keys = OFF;
+            BEGIN IMMEDIATE;
+            DROP TABLE IF EXISTS notification_outbox_v2;
+            CREATE TABLE notification_outbox_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_id TEXT NOT NULL REFERENCES match_sessions(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL CHECK (kind IN (
+                    'RECRUITMENT_COMPLETE', 'TIER_MISSING_REMINDER',
+                    'LOBBY_REMINDER', 'TIER_COMPLETE'
+                )),
+                channel_id INTEGER NOT NULL,
+                payload_json TEXT NOT NULL,
+                dedupe_key TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL CHECK (status IN (
+                    'PENDING', 'SENDING', 'SENT', 'FAILED', 'CANCELED'
+                )),
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at_utc TEXT NOT NULL,
+                last_error TEXT,
+                discord_message_id INTEGER,
+                created_at_utc TEXT NOT NULL,
+                sent_at_utc TEXT
+            );
+            INSERT INTO notification_outbox_v2 (
+                id, match_id, kind, channel_id, payload_json, dedupe_key,
+                status, attempts, next_attempt_at_utc, last_error,
+                discord_message_id, created_at_utc, sent_at_utc
+            )
+            SELECT
+                id, match_id, kind, channel_id, payload_json, dedupe_key,
+                status, attempts, next_attempt_at_utc, last_error,
+                discord_message_id, created_at_utc, sent_at_utc
+            FROM notification_outbox;
+            DROP TABLE notification_outbox;
+            ALTER TABLE notification_outbox_v2 RENAME TO notification_outbox;
+            CREATE INDEX ix_notification_pending
+            ON notification_outbox(status, next_attempt_at_utc);
+            COMMIT;
+            PRAGMA foreign_keys = ON;
+            """
         )
 
     async def close(self) -> None:
@@ -115,10 +176,11 @@ class SQLiteMatchRepository(MatchRepository):
                         tier_channel_id, admin_channel_id, mode, participant_limit,
                         status, starts_at_utc, tier_deadline_at_utc, lobby_at_utc,
                         full_reached_at_utc, recruitment_completed_notified_at_utc,
-                        tier_complete_notified_at_utc, lobby_notified_at_utc,
+                        tier_complete_notified_at_utc,
+                        tier_missing_reminder_notified_at_utc, lobby_notified_at_utc,
                         last_missing_tier_reminder_at_utc, next_arrival_seq,
                         created_at_utc, updated_at_utc
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session.id,
@@ -141,6 +203,9 @@ class SQLiteMatchRepository(MatchRepository):
                         else None,
                         _to_db(session.tier_complete_notified_at)
                         if session.tier_complete_notified_at
+                        else None,
+                        _to_db(session.tier_missing_reminder_notified_at)
+                        if session.tier_missing_reminder_notified_at
                         else None,
                         _to_db(session.lobby_notified_at) if session.lobby_notified_at else None,
                         _to_db(session.last_missing_tier_reminder_at)
@@ -525,6 +590,56 @@ class SQLiteMatchRepository(MatchRepository):
                 await self.connection.rollback()
                 raise
 
+    async def enqueue_tier_missing_reminder_if_due(
+        self, match_id: str, now: datetime
+    ) -> None:
+        async with self._write_lock:
+            await self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                session = await self._fetchone(
+                    """
+                    SELECT announcement_channel_id, tier_deadline_at_utc,
+                           recruitment_completed_notified_at_utc,
+                           tier_missing_reminder_notified_at_utc
+                    FROM match_sessions
+                    WHERE id = ? AND status IN (?, ?, ?)
+                    """,
+                    (match_id, *ACTIVE_STATUSES),
+                )
+                deadline = (
+                    _from_db(session["tier_deadline_at_utc"])
+                    if session is not None
+                    else None
+                )
+                if (
+                    session is None
+                    or deadline is None
+                    or now < deadline
+                    or session["recruitment_completed_notified_at_utc"] is None
+                    or session["tier_missing_reminder_notified_at_utc"] is not None
+                ):
+                    await self.connection.rollback()
+                    return
+                statuses = await self.get_tier_status(match_id)
+                missing_user_ids = [
+                    item.discord_user_id for item in statuses if not item.has_tier
+                ]
+                if not missing_user_ids:
+                    await self.connection.rollback()
+                    return
+                await self._insert_notification(
+                    match_id=match_id,
+                    kind=NotificationKind.TIER_MISSING_REMINDER,
+                    channel_id=int(session["announcement_channel_id"]),
+                    payload={"user_ids": missing_user_ids},
+                    dedupe_key=f"match:{match_id}:tier-missing-reminder",
+                    now=now,
+                )
+                await self.connection.commit()
+            except Exception:
+                await self.connection.rollback()
+                raise
+
     async def enqueue_tier_complete_if_ready(self, match_id: str, now: datetime) -> None:
         async with self._write_lock:
             await self.connection.execute("BEGIN IMMEDIATE")
@@ -637,6 +752,7 @@ class SQLiteMatchRepository(MatchRepository):
                 )
                 column = {
                     NotificationKind.RECRUITMENT_COMPLETE: "recruitment_completed_notified_at_utc",
+                    NotificationKind.TIER_MISSING_REMINDER: "tier_missing_reminder_notified_at_utc",
                     NotificationKind.LOBBY_REMINDER: "lobby_notified_at_utc",
                     NotificationKind.TIER_COMPLETE: "tier_complete_notified_at_utc",
                 }[notification.kind]
@@ -779,6 +895,9 @@ class SQLiteMatchRepository(MatchRepository):
                 row["recruitment_completed_notified_at_utc"]
             ),
             tier_complete_notified_at=_from_db(row["tier_complete_notified_at_utc"]),
+            tier_missing_reminder_notified_at=_from_db(
+                row["tier_missing_reminder_notified_at_utc"]
+            ),
             lobby_notified_at=_from_db(row["lobby_notified_at_utc"]),
             last_missing_tier_reminder_at=_from_db(
                 row["last_missing_tier_reminder_at_utc"]

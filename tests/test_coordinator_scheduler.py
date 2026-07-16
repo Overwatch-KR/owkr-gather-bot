@@ -171,3 +171,47 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             await self.repository.notification_count(session.id, NotificationKind.TIER_COMPLETE),
             1,
         )
+
+    async def test_tier_deadline_missing_reminder_is_created_once(self) -> None:
+        opened = self.clock.now() + timedelta(minutes=1)
+        session = make_session(
+            status=MatchStatus.FULL,
+            full_reached_at=opened - timedelta(seconds=1),
+            completion_notified_at=opened,
+        )
+        await self.repository.create_replacing_active(session)
+        await self.add_roster_entry(
+            session.id, 1, RosterStatus.CONFIRMED, 1, self.clock.now()
+        )
+        self.clock.value = session.tier_deadline_at
+        await self.coordinator.restore()
+        scheduler = MatchScheduler(
+            self.coordinator,
+            self.repository,
+            self.writer,  # type: ignore[arg-type]
+            self.clock,
+            interval_seconds=60,
+        )
+
+        await scheduler.tick()
+        await scheduler.tick()
+
+        self.assertEqual(
+            await self.repository.notification_count(
+                session.id, NotificationKind.TIER_MISSING_REMINDER
+            ),
+            1,
+        )
+        notifications = await self.repository.claim_notifications(self.clock.now())
+        reminder = next(
+            item
+            for item in notifications
+            if item.kind is NotificationKind.TIER_MISSING_REMINDER
+        )
+        self.assertEqual(reminder.payload["user_ids"], [1])
+        await self.repository.mark_notification_sent(reminder, 9001, self.clock.now())
+        restored = await self.repository.get_match(session.id)
+        self.assertEqual(
+            restored.tier_missing_reminder_notified_at,
+            session.tier_deadline_at,
+        )

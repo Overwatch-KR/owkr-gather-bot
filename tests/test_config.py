@@ -47,6 +47,23 @@ class RuntimeConfigTest(unittest.TestCase):
         )
         self.assertNotIn("dotenv-secret", repr(runtime))
 
+    def test_recruitment_role_id_is_loaded_as_a_snowflake(self) -> None:
+        config_path = self.root / "config" / "config.yaml"
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8").replace(
+                "recruitment_role_id: null",
+                'recruitment_role_id: "1527196510431871007"',
+            ),
+            encoding="utf-8",
+        )
+        with patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "secret"}, clear=True):
+            runtime = load_runtime_config(base_directory=self.root)
+
+        self.assertEqual(
+            runtime.app.defaults.recruitment_role_id,
+            1527196510431871007,
+        )
+
     def test_existing_environment_has_priority_over_dotenv(self) -> None:
         self.write_env(
             "DISCORD_BOT_TOKEN=dotenv-secret\n"
@@ -79,6 +96,10 @@ class RuntimeConfigTest(unittest.TestCase):
             runtime.template_path,
             (self.root / "templates" / "recruitment.txt").resolve(),
         )
+        self.assertEqual(
+            runtime.recruitment_complete_template_path,
+            (self.root / "templates" / "recruitment_complete.txt").resolve(),
+        )
         self.assertEqual(runtime.log_level, "INFO")
 
     def test_missing_token_fails_without_exposing_sensitive_values(self) -> None:
@@ -109,6 +130,7 @@ class RuntimeConfigTest(unittest.TestCase):
             "OWKR_CONFIG_PATH": "config/config.yaml",
             "OWKR_DATABASE_PATH": "relative/data.sqlite3",
             "OWKR_TEMPLATE_PATH": "relative/template.txt",
+            "OWKR_RECRUITMENT_COMPLETE_TEMPLATE_PATH": "relative/complete.txt",
         }
         with patch.dict(os.environ, environment, clear=True):
             runtime = load_runtime_config(base_directory=self.root)
@@ -122,16 +144,22 @@ class RuntimeConfigTest(unittest.TestCase):
         self.assertEqual(
             runtime.template_path, (self.root / "relative" / "template.txt").resolve()
         )
+        self.assertEqual(
+            runtime.recruitment_complete_template_path,
+            (self.root / "relative" / "complete.txt").resolve(),
+        )
 
     def test_absolute_paths_are_preserved(self) -> None:
         config_path = self.root / "config" / "config.yaml"
         database_path = self.root / "absolute.sqlite3"
         template_path = self.root / "absolute-template.txt"
+        complete_template_path = self.root / "absolute-complete-template.txt"
         environment = {
             "DISCORD_BOT_TOKEN": "secret",
             "OWKR_CONFIG_PATH": str(config_path),
             "OWKR_DATABASE_PATH": str(database_path),
             "OWKR_TEMPLATE_PATH": str(template_path),
+            "OWKR_RECRUITMENT_COMPLETE_TEMPLATE_PATH": str(complete_template_path),
         }
         with patch.dict(os.environ, environment, clear=True):
             runtime = load_runtime_config(base_directory=Path("/"))
@@ -139,6 +167,10 @@ class RuntimeConfigTest(unittest.TestCase):
         self.assertEqual(runtime.config_path, config_path.resolve())
         self.assertEqual(runtime.database_path, database_path.resolve())
         self.assertEqual(runtime.template_path, template_path.resolve())
+        self.assertEqual(
+            runtime.recruitment_complete_template_path,
+            complete_template_path.resolve(),
+        )
 
     def test_main_stops_with_clear_configuration_error(self) -> None:
         stderr = StringIO()
@@ -162,6 +194,7 @@ class RuntimeConfigTest(unittest.TestCase):
             config_path=self.root / "config" / "config.yaml",
             database_path=self.root / "data.sqlite3",
             template_path=self.root / "template.txt",
+            recruitment_complete_template_path=self.root / "complete-template.txt",
             log_level="INFO",
             dotenv_path=self.root / ".env",
             dotenv_loaded=True,

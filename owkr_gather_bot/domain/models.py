@@ -27,6 +27,7 @@ class ReactionAction(StrEnum):
 
 class NotificationKind(StrEnum):
     RECRUITMENT_COMPLETE = "RECRUITMENT_COMPLETE"
+    TIER_MISSING_REMINDER = "TIER_MISSING_REMINDER"
     LOBBY_REMINDER = "LOBBY_REMINDER"
     TIER_COMPLETE = "TIER_COMPLETE"
 
@@ -60,6 +61,7 @@ class MatchSession:
     full_reached_at: datetime | None = None
     recruitment_completed_notified_at: datetime | None = None
     tier_complete_notified_at: datetime | None = None
+    tier_missing_reminder_notified_at: datetime | None = None
     lobby_notified_at: datetime | None = None
     last_missing_tier_reminder_at: datetime | None = None
     next_arrival_seq: int = 1
@@ -188,4 +190,3 @@ class NotificationRecord:
     status: NotificationStatus
     attempts: int
     next_attempt_at: datetime
-

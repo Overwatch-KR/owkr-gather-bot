@@ -88,6 +88,9 @@ class SessionActor:
         entry = self._entries.get(user_id)
         return entry is not None and entry.is_active
 
+    def active_user_count(self) -> int:
+        return sum(1 for entry in self._entries.values() if entry.is_active)
+
     def display_name_for(self, user_id: int) -> str | None:
         entry = self._entries.get(user_id)
         return entry.discord_display_name if entry else None
@@ -99,6 +102,8 @@ class SessionActor:
             self.session.lobby_notified_at = sent_at
         elif kind == "TIER_COMPLETE":
             self.session.tier_complete_notified_at = sent_at
+        elif kind == "TIER_MISSING_REMINDER":
+            self.session.tier_missing_reminder_notified_at = sent_at
 
     async def _run(self) -> None:
         while True:

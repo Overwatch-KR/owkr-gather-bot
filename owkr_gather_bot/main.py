@@ -32,6 +32,10 @@ def main() -> None:
     logger.info("config path=%s", runtime.config_path)
     logger.info("SQLite database path=%s", runtime.database_path)
     logger.info("recruitment template path=%s", runtime.template_path)
+    logger.info(
+        "recruitment complete template path=%s",
+        runtime.recruitment_complete_template_path,
+    )
     repository = SQLiteMatchRepository(runtime.database_path)
     writer = PersistenceWriter(repository)
     clock = SystemClock()
@@ -47,6 +51,7 @@ def main() -> None:
         scheduler=scheduler,
         clock=clock,
         template_path=runtime.template_path,
+        recruitment_complete_template_path=runtime.recruitment_complete_template_path,
         migration_path=runtime.working_directory / "migrations" / "001_initial.sql",
     )
     bot.run(runtime.token, log_handler=None)

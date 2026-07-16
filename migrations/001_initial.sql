@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS match_sessions (
     full_reached_at_utc TEXT,
     recruitment_completed_notified_at_utc TEXT,
     tier_complete_notified_at_utc TEXT,
+    tier_missing_reminder_notified_at_utc TEXT,
     lobby_notified_at_utc TEXT,
     last_missing_tier_reminder_at_utc TEXT,
     next_arrival_seq INTEGER NOT NULL DEFAULT 1,
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS tier_submissions (
 CREATE TABLE IF NOT EXISTS notification_outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     match_id TEXT NOT NULL REFERENCES match_sessions(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('RECRUITMENT_COMPLETE', 'LOBBY_REMINDER', 'TIER_COMPLETE')),
+    kind TEXT NOT NULL CHECK (kind IN ('RECRUITMENT_COMPLETE', 'TIER_MISSING_REMINDER', 'LOBBY_REMINDER', 'TIER_COMPLETE')),
     channel_id INTEGER NOT NULL,
     payload_json TEXT NOT NULL,
     dedupe_key TEXT NOT NULL UNIQUE,
@@ -84,4 +85,3 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
 
 CREATE INDEX IF NOT EXISTS ix_notification_pending
 ON notification_outbox(status, next_attempt_at_utc);
-

@@ -57,6 +57,8 @@ class MatchScheduler:
             await self._repository.enqueue_lobby_notification(session.id, now)
         if session.recruitment_completed_notified_at is not None:
             await self._repository.enqueue_tier_complete_if_ready(session.id, now)
+            if now >= session.tier_deadline_at:
+                await self._repository.enqueue_tier_missing_reminder_if_due(session.id, now)
 
     async def _run(self) -> None:
         while True:
@@ -65,4 +67,3 @@ class MatchScheduler:
             except Exception:
                 logger.exception("scheduler tick failed")
             await asyncio.sleep(self._interval)
-

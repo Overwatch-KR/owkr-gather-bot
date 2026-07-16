@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from owkr_gather_bot.adapters.discord_adapter import allowed_mentions_for
+from jinja2.exceptions import SecurityError
+
+from owkr_gather_bot.adapters.discord_adapter import (
+    allowed_mentions_for,
+    build_recruitment_embed,
+)
 from owkr_gather_bot.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer
 from owkr_gather_bot.domain.models import (
     NotificationKind,
@@ -16,8 +22,13 @@ from owkr_gather_bot.domain.models import (
 from tests.helpers import make_config, make_session
 
 
+RECRUITMENT_COMPLETE_TEMPLATE = (
+    Path(__file__).resolve().parents[1] / "templates" / "recruitment_complete.txt"
+)
+
+
 class RenderingTest(unittest.TestCase):
-    def test_completion_allows_only_first_ten_users(self) -> None:
+    def test_completion_does_not_mention_participants(self) -> None:
         session = make_session()
         users = tuple(range(1, 11))
         notification = NotificationRecord(
@@ -31,15 +42,18 @@ class RenderingTest(unittest.TestCase):
             attempts=0,
             next_attempt_at=session.created_at,
         )
-        rendered = NotificationRenderer(make_config()).render(notification, session)
-        self.assertEqual(rendered.allowed_user_ids, users)
-        self.assertIn("<@10>", rendered.content)
+        rendered = NotificationRenderer(
+            make_config(), RECRUITMENT_COMPLETE_TEMPLATE
+        ).render(notification, session)
+        self.assertEqual(rendered.allowed_user_ids, ())
+        self.assertNotIn("<@1>", rendered.content)
+        self.assertNotIn("<@10>", rendered.content)
         self.assertNotIn("<@11>", rendered.content)
 
         allowed = allowed_mentions_for(rendered.allowed_user_ids).to_dict()
         self.assertNotIn("everyone", allowed.get("parse", []))
         self.assertNotIn("roles", allowed.get("parse", []))
-        self.assertEqual([int(user_id) for user_id in allowed["users"]], list(users))
+        self.assertNotIn("users", allowed)
 
     def test_recruitment_template_omits_null_mode(self) -> None:
         template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"
@@ -47,8 +61,160 @@ class RenderingTest(unittest.TestCase):
         content = RecruitmentTemplateRenderer(make_config(), template).render(
             session, make_config().manager(session.manager_user_id)
         )
-        self.assertNotIn("모드:", content)
+        embed = build_recruitment_embed(make_config(), content)
+        self.assertNotIn("🎮 모드", [field.name for field in embed.fields])
         self.assertNotIn("@everyone", content)
+
+    def test_recruitment_uses_native_discord_timestamps(self) -> None:
+        template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"
+        config = make_config()
+        session = make_session()
+        recruitment = RecruitmentTemplateRenderer(config, template).render(
+            session, config.manager(session.manager_user_id)
+        )
+        embed = build_recruitment_embed(config, recruitment)
+        embed_payload = embed.to_dict()
+        embed_text = str(embed_payload)
+        starts_at = int(session.starts_at.timestamp())
+        tier_deadline_at = int(session.tier_deadline_at.timestamp())
+        lobby_at = int(session.lobby_at.timestamp())
+        self.assertEqual(embed.title, "내전 모집")
+        self.assertIn(f"<t:{starts_at}:F>", embed_text)
+        self.assertIn(f"<t:{starts_at}:R>", embed_text)
+        self.assertIn(f"<t:{tier_deadline_at}:t>", embed_text)
+        self.assertIn(f"<t:{lobby_at}:t>", embed_text)
+        self.assertNotIn("7월", embed_text)
+        self.assertIn(f"첫 **{session.participant_limit}명**까지 확정", embed.description)
+        self.assertEqual(
+            embed.footer.text,
+            config.messages.manner_notice,
+        )
+        self.assertIn(f"<#{session.tier_channel_id}>", embed.description)
+
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.RECRUITMENT_COMPLETE,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": list(range(1, 11))},
+            dedupe_key="complete-time-display",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.created_at,
+        )
+        completion = NotificationRenderer(
+            config, RECRUITMENT_COMPLETE_TEMPLATE
+        ).render(notification, session).content
+        self.assertIn(f"<t:{starts_at}:F>", completion)
+        self.assertIn(f"<t:{starts_at}:R>", completion)
+        self.assertIn(f"**티어 작성 마감** · <t:{tier_deadline_at}:t>", completion)
+        self.assertIn(f"**대기실 입장** · <t:{lobby_at}:t>", completion)
+
+    def test_tier_missing_reminder_mentions_only_payload_users(self) -> None:
+        session = make_session()
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.TIER_MISSING_REMINDER,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": [1, 2]},
+            dedupe_key="tier-missing",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.tier_deadline_at,
+        )
+
+        rendered = NotificationRenderer(
+            make_config(), RECRUITMENT_COMPLETE_TEMPLATE
+        ).render(notification, session)
+
+        self.assertEqual(rendered.allowed_user_ids, (1, 2))
+        self.assertIn("<@1> <@2>", rendered.content)
+        self.assertIn(f"<#{session.tier_channel_id}>", rendered.content)
+
+    def test_recruitment_complete_template_replaces_custom_variables(self) -> None:
+        session = make_session()
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.RECRUITMENT_COMPLETE,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": [1, 2]},
+            dedupe_key="custom-complete",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.created_at,
+        )
+        with TemporaryDirectory() as directory:
+            template = Path(directory) / "complete.txt"
+            template.write_text(
+                "{{ user }} | {{ tier_channel }} | {{ tier_deadline }} | "
+                "{{ lobby_time }} | {{ participant_count }}명",
+                encoding="utf-8",
+            )
+            rendered = NotificationRenderer(make_config(), template).render(
+                notification, session
+            )
+
+        self.assertNotIn("<@1>", rendered.content)
+        self.assertNotIn("<@2>", rendered.content)
+        self.assertIn(f"<#{session.tier_channel_id}>", rendered.content)
+        self.assertIn("| 2명", rendered.content)
+        self.assertEqual(rendered.allowed_user_ids, ())
+
+    def test_recruitment_complete_template_reloads_after_file_edit(self) -> None:
+        session = make_session()
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.RECRUITMENT_COMPLETE,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": [1, 2]},
+            dedupe_key="reload-complete",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.created_at,
+        )
+        with TemporaryDirectory() as directory:
+            template = Path(directory) / "complete.txt"
+            template.write_text("첫 문구 {{ user }}", encoding="utf-8")
+            renderer = NotificationRenderer(make_config(), template)
+            first = renderer.render(notification, session)
+            template.write_text("수정 문구 {{ tier_channel }}", encoding="utf-8")
+            second = renderer.render(notification, session)
+
+        self.assertEqual(first.content, "첫 문구")
+        self.assertIn(f"수정 문구 <#{session.tier_channel_id}>", second.content)
+
+    def test_recruitment_complete_preview_uses_sample_schedule(self) -> None:
+        now = datetime(2026, 7, 16, 6, 0, tzinfo=timezone.utc)
+        rendered = NotificationRenderer(
+            make_config(),
+            RECRUITMENT_COMPLETE_TEMPLATE,
+        ).render_recruitment_complete_preview(
+            user_ids=(200,),
+            now=now,
+        )
+        starts_at = now + timedelta(hours=1)
+
+        self.assertNotIn("<@200>", rendered.content)
+        self.assertIn(f"<t:{int(starts_at.timestamp())}:F>", rendered.content)
+        self.assertIn("<#103>", rendered.content)
+        self.assertEqual(rendered.allowed_user_ids, ())
+
+    def test_recruitment_complete_template_rejects_unsafe_object_access(self) -> None:
+        with self.assertRaises(SecurityError):
+            NotificationRenderer.validate_recruitment_complete_template(
+                "{{ cycler.__init__.__globals__ }}",
+                make_config(),
+            )
+
+    def test_recruitment_role_is_the_only_allowed_role_mention(self) -> None:
+        allowed = allowed_mentions_for([], [999]).to_dict()
+
+        self.assertNotIn("everyone", allowed.get("parse", []))
+        self.assertNotIn("roles", allowed.get("parse", []))
+        self.assertEqual([int(role_id) for role_id in allowed["roles"]], [999])
 
     def test_template_mentions_are_present_as_text_but_never_allowed_to_ping(self) -> None:
         template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"

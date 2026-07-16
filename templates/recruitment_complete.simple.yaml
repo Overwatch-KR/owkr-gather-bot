@@ -1,0 +1,12 @@
+start_heading: 내전 시작
+tier_heading: 티어 작성
+tier_instruction: 가능한 빠르게 아래 형식으로 작성해 주세요.
+tier_format_example: '배틀태그
+
+  탱커 / 딜러 / 힐러
+
+
+  뿅뿅이#31243
+
+  그마5 / 그마2 / 그마5'
+extra_notice: ''

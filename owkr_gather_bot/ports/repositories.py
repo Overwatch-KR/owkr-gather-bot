@@ -65,6 +65,11 @@ class MatchRepository(ABC):
     async def enqueue_lobby_notification(self, match_id: str, now: datetime) -> None: ...
 
     @abstractmethod
+    async def enqueue_tier_missing_reminder_if_due(
+        self, match_id: str, now: datetime
+    ) -> None: ...
+
+    @abstractmethod
     async def enqueue_tier_complete_if_ready(self, match_id: str, now: datetime) -> None: ...
 
     @abstractmethod

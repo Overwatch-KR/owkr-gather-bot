@@ -9,15 +9,17 @@ channels:
 admin_user_ids:
   - "123456789012345683"
 
-admin_role_ids: []
+# 내전 관리자, 스태프 등 명령 실행을 허용할 역할 ID를 여러 개 등록할 수 있습니다.
+admin_role_ids:
+  - "123456789012345684"
+  - "123456789012345685"
 
 defaults:
   participant_limit: 10
   tier_deadline_offset_minutes: 30
   lobby_offset_minutes: 10
   past_time_policy: reject
-  offer_next_day_confirmation: true
-  next_day_confirmation_timeout_seconds: 120
+  recruitment_role_id: null
   mode_display_fallback: null
   lobby_name: "대기실 1번"
 
@@ -35,4 +37,3 @@ managers:
     pick_limit: ""
     ban_list: []
     extra_notice: ""
-

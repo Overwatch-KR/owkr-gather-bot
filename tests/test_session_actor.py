@@ -66,6 +66,15 @@ class SessionActorTest(unittest.IsolatedAsyncioTestCase):
             ["CONFIRMED", "DUPLICATE_ADD", "WITHDRAWN", "CONFIRMED"],
         )
 
+    async def test_active_user_count_returns_to_zero_after_last_remove(self) -> None:
+        self.actor.ingest(self.event(1, ReactionAction.ADD, 1))
+        await self.actor.drain()
+        self.assertEqual(self.actor.active_user_count(), 1)
+
+        self.actor.ingest(self.event(1, ReactionAction.REMOVE, 2))
+        await self.actor.drain()
+        self.assertEqual(self.actor.active_user_count(), 0)
+
     async def test_confirmed_removal_after_full_does_not_promote_waitlist(self) -> None:
         for user_id in range(1, 12):
             self.actor.ingest(self.event(user_id, ReactionAction.ADD, user_id))

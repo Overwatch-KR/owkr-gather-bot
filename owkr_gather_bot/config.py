@@ -40,8 +40,7 @@ class DefaultConfig:
     tier_deadline_offset_minutes: int = 30
     lobby_offset_minutes: int = 10
     past_time_policy: str = "reject"
-    offer_next_day_confirmation: bool = True
-    next_day_confirmation_timeout_seconds: int = 120
+    recruitment_role_id: int | None = None
     mode_display_fallback: str | None = None
     lobby_name: str = "대기실 1번"
 
@@ -95,6 +94,7 @@ class RuntimeConfig:
     config_path: Path
     database_path: Path
     template_path: Path
+    recruitment_complete_template_path: Path
     log_level: str
     dotenv_path: Path
     dotenv_loaded: bool
@@ -121,9 +121,10 @@ def load_app_config(path: Path) -> AppConfig:
         tier_deadline_offset_minutes=int(defaults_raw.get("tier_deadline_offset_minutes", 30)),
         lobby_offset_minutes=int(defaults_raw.get("lobby_offset_minutes", 10)),
         past_time_policy=str(defaults_raw.get("past_time_policy", "reject")),
-        offer_next_day_confirmation=bool(defaults_raw.get("offer_next_day_confirmation", True)),
-        next_day_confirmation_timeout_seconds=int(
-            defaults_raw.get("next_day_confirmation_timeout_seconds", 120)
+        recruitment_role_id=(
+            _snowflake(defaults_raw["recruitment_role_id"], "defaults.recruitment_role_id")
+            if defaults_raw.get("recruitment_role_id") is not None
+            else None
         ),
         mode_display_fallback=_optional_text(defaults_raw.get("mode_display_fallback")),
         lobby_name=str(defaults_raw.get("lobby_name", "대기실 1번")).strip(),
@@ -196,6 +197,13 @@ def load_runtime_config(*, base_directory: Path | None = None) -> RuntimeConfig:
         os.environ.get("OWKR_TEMPLATE_PATH", "templates/recruitment.txt"),
         working_directory,
     )
+    recruitment_complete_template_path = _resolve_path(
+        os.environ.get(
+            "OWKR_RECRUITMENT_COMPLETE_TEMPLATE_PATH",
+            "templates/recruitment_complete.txt",
+        ),
+        working_directory,
+    )
     log_level = os.environ.get("OWKR_LOG_LEVEL", "INFO").strip().upper()
     if log_level not in ALLOWED_LOG_LEVELS:
         allowed = ", ".join(sorted(ALLOWED_LOG_LEVELS))
@@ -217,6 +225,7 @@ def load_runtime_config(*, base_directory: Path | None = None) -> RuntimeConfig:
         config_path=config_path,
         database_path=database_path,
         template_path=template_path,
+        recruitment_complete_template_path=recruitment_complete_template_path,
         log_level=log_level,
         dotenv_path=dotenv_path,
         dotenv_loaded=dotenv_loaded,

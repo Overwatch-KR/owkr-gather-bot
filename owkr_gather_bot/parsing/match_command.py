@@ -22,9 +22,7 @@ class CommandParseError(ValueError):
 
 
 class PastTimeError(CommandParseError):
-    def __init__(self, proposal: ParsedMatchCommand) -> None:
-        super().__init__("입력한 시각이 이미 지났습니다.")
-        self.proposal = proposal
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +72,7 @@ class MatchCommandParser:
         )
         result = self._build(starts_at, mode)
         if starts_at <= now_kst:
-            raise PastTimeError(self._build(starts_at + timedelta(days=1), mode))
+            raise PastTimeError("입력한 시각이 이미 지났습니다.")
         return result
 
     def _build(self, starts_at: datetime, mode: str | None) -> ParsedMatchCommand:
