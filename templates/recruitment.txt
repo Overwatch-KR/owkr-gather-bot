@@ -1,0 +1,14 @@
+⚔️ {{ starts_at_display }} 내전 모집
+{% if mode_display %}모드: {{ mode_display }}
+{% endif %}
+{{ participation_notice }}
+
+티어 작성 마감: {{ tier_deadline_display }}
+대기실 입장: {{ lobby_display }}
+
+{% if manager_rules %}{{ manager_rules }}
+
+{% endif %}{{ tier_notice }}
+
+{{ manner_notice }}
+
