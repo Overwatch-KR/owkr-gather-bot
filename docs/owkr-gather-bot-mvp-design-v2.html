@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>owkr-gather-bot MVP 수정 설계안 v2</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --paper: #fff;
+      --ink: #18212b;
+      --muted: #667382;
+      --line: #dce3eb;
+      --navy: #344a5e;
+      --blue: #6f9bc5;
+      --blue-soft: #eaf3fb;
+      --green: #16835f;
+      --green-soft: #e9f7f1;
+      --amber: #b66a05;
+      --amber-soft: #fff4db;
+      --red: #c64242;
+      --red-soft: #fff0f0;
+      --code: #202a35;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.68;
+    }
+    main { width: min(1140px, calc(100% - 32px)); margin: 36px auto 80px; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { margin: 0 0 8px; font-size: clamp(30px, 5vw, 45px); letter-spacing: -.04em; }
+    h2 {
+      margin: 52px 0 18px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--ink);
+      font-size: 26px;
+      letter-spacing: -.025em;
+    }
+    h3 { margin: 25px 0 10px; color: var(--navy); font-size: 19px; }
+    p { margin: 8px 0 14px; }
+    a { color: #275f91; text-underline-offset: 3px; }
+    ul, ol { padding-left: 22px; }
+    li + li { margin-top: 5px; }
+    code { padding: 2px 6px; border-radius: 5px; background: #eef2f6; color: #263849; font-size: .92em; }
+    pre {
+      overflow-x: auto;
+      margin: 12px 0;
+      padding: 17px 19px;
+      border-radius: 10px;
+      background: var(--code);
+      color: #eef5fb;
+      font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .hero {
+      padding: 34px;
+      border: 1px solid #cfd8e2;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #fff 0%, #edf4fa 100%);
+      box-shadow: 0 18px 45px rgba(46, 63, 80, .08);
+    }
+    .hero p { max-width: 880px; font-size: 17px; }
+    .meta { color: var(--muted); font-size: 14px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--navy);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge.ok { background: var(--green); }
+    .badge.new { background: var(--blue); }
+    .badge.out { background: #8290a0; }
+    .badge.p0 { background: var(--red); }
+    .card {
+      margin: 14px 0;
+      padding: 21px 23px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--paper);
+    }
+    .card h3:first-child { margin-top: 0; }
+    .note, .warning, .decision, .success {
+      margin: 17px 0;
+      padding: 15px 18px;
+      border-left: 4px solid;
+      border-radius: 8px;
+    }
+    .note { border-color: var(--blue); background: var(--blue-soft); }
+    .warning { border-color: var(--amber); background: var(--amber-soft); }
+    .decision { border-color: var(--red); background: var(--red-soft); }
+    .success { border-color: var(--green); background: var(--green-soft); }
+    .grid-2, .grid-3 { display: grid; gap: 14px; align-items: start; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 11px; }
+    table { width: 100%; border-collapse: collapse; background: var(--paper); }
+    th, td { padding: 11px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #edf2f7; color: #354658; font-size: 13px; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(120px, 1fr));
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .flow > div {
+      position: relative;
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid #cfd9e3;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .flow > div:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      top: 34%;
+      right: -16px;
+      z-index: 2;
+      color: var(--navy);
+      font-weight: 800;
+    }
+    .flow strong { display: block; margin-bottom: 5px; color: var(--navy); }
+    .small { color: var(--muted); font-size: 13px; }
+    .toc { columns: 2; column-gap: 36px; }
+    .toc a { display: block; break-inside: avoid; padding: 3px 0; text-decoration: none; }
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li { position: relative; padding-left: 27px; }
+    .checklist li::before { content: "□"; position: absolute; left: 2px; top: -1px; color: var(--navy); font-size: 18px; }
+    details { margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+    summary { cursor: pointer; padding: 13px 16px; color: var(--navy); font-weight: 750; }
+    details > div { padding: 0 17px 17px; }
+    footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    @media (max-width: 900px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .flow > div:not(:last-child)::after { content: "↓"; top: auto; right: 50%; bottom: -17px; }
+      .toc { columns: 1; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <h1>owkr-gather-bot MVP 수정 설계안</h1>
+    <div class="meta">v2 · 2026-07-16 · Asia/Seoul · 구현 전 검토안</div>
+    <p>
+      v1의 확장 지점을 유지하되 MVP는 한 길드·한 활성 세션·SQLite 단일 인스턴스로 줄였습니다.
+      티어 인정 범위는 모집 완료 공지 전송 시각부터 마감 전까지이며, 참가 순서는 세션 actor가 부여한 raw reaction <code>arrival_seq</code>로 확정합니다.
+    </p>
+    <div class="badges">
+      <span class="badge ok">10개 변경 반영</span>
+      <span class="badge">상태 6개</span>
+      <span class="badge new">SQLite local-first</span>
+      <span class="badge out">전체 구현 미시작</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>이번 수정의 결론</h3>
+    <div class="grid-3">
+      <div><strong>티어 수집</strong><br><span class="small">완료 공지 전송 후부터 마감 직전까지의 작성·수정 이벤트만</span></div>
+      <div><strong>참가 순서</strong><br><span class="small">세션 actor의 단조 증가 <code>arrival_seq</code></span></div>
+      <div><strong>운영 구조</strong><br><span class="small">단일 프로세스 + SQLite + 단순 outbox</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>목차</h3>
+    <nav class="toc">
+      <a href="#changes">1. 변경 요청 반영 요약</a>
+      <a href="#decisions">2. 확정한 MVP 규칙</a>
+      <a href="#architecture">3. 단순화한 아키텍처</a>
+      <a href="#states">4. 상태와 생명주기</a>
+      <a href="#tiers">5. 티어 수집 규칙</a>
+      <a href="#reactions">6. 반응과 참가 순서</a>
+      <a href="#command">7. 명령 파싱과 지난 시각</a>
+      <a href="#templates">8. 관리자 설정과 템플릿</a>
+      <a href="#models">9. 데이터 모델과 웹 계약</a>
+      <a href="#scope">10. 실제 MVP 구현 범위</a>
+      <a href="#recovery">11. 재시작·장애 복구</a>
+      <a href="#discord">12. Discord Intent/권한</a>
+      <a href="#tests">13. 핵심 테스트</a>
+      <a href="#files">14. 권장 파일 구조와 구현 순서</a>
+    </nav>
+  </section>
+
+  <h2 id="changes">1. 변경 요청 반영 요약</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>변경</th><th>v2 결정</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>티어 인정 시작점 제한</td><td><code>recruitment_completed_notified_at ≤ activity_at &lt; tier_deadline_at</code>만 인정</td></tr>
+        <tr><td>2</td><td>세션별 최신 원문</td><td>Discord user ID + 세션 수집 창으로 연결하고, 가장 최신 qualifying activity만 upsert</td></tr>
+        <tr><td>3</td><td>모드 생략 허용</td><td>DB에는 <code>mode = null</code>. 템플릿은 모드 줄을 생략하거나 선택적으로 “일반 내전” 표시</td></tr>
+        <tr><td>4</td><td>지난 시각 안전 처리</td><td>기본 <code>reject</code>. 선택적으로 실행 관리자에게 “내일 생성” 버튼 확인</td></tr>
+        <tr><td>5</td><td>10분 전 로스터 잠금 제거</td><td>시작 전까지 승격. 시작 시각부터 공식 로스터를 동결하고 제거는 관리자 알림만</td></tr>
+        <tr><td>6</td><td>참가 순서 정의</td><td>세션 actor가 수신한 raw reaction event dequeue 순서의 <code>arrival_seq</code></td></tr>
+        <tr><td>7</td><td>웹 티어 DTO 축소</td><td><code>discordUserId</code>, <code>discordDisplayName</code>, <code>rawTierMessage</code>, <code>reactionOrder</code>만 전달</td></tr>
+        <tr><td>8</td><td>MVP 인프라 축소</td><td>Redis, 다중 인스턴스, FastAPI 구현, 고급 dead-letter, 정교한 불확실 순서 절차 제외</td></tr>
+        <tr><td>9</td><td>템플릿 축소</td><td>단일 YAML/JSON 설정 + 공통 텍스트 템플릿 1개</td></tr>
+        <tr><td>10</td><td>상태 축소</td><td><code>CREATED, RECRUITING, FULL, STARTED, CLOSED, CANCELED</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="decisions">2. 확정한 MVP 규칙</h2>
+  <div class="grid-2">
+    <section class="card">
+      <h3>모집</h3>
+      <ul>
+        <li>정원 기본값은 10명이며 모드 문자열과 독립</li>
+        <li>길드당 활성 내전은 1개</li>
+        <li>첫 정원 도달 시 완료 공지는 한 번만 생성</li>
+        <li>완료 후 인원이 다시 부족해져도 완료 공지를 재전송하지 않음</li>
+        <li>시작 전 확정자 제거 시 가장 빠른 대기자 자동 승격</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>티어와 시간</h3>
+      <ul>
+        <li>티어 수집 창의 시작은 완료 공지가 실제 전송된 시각</li>
+        <li>수집 창 종료는 티어 마감 시각 미만</li>
+        <li>마감 이후 수정은 저장된 원문을 바꾸지 않음</li>
+        <li>대기실 안내는 시작 10분 전이지만 로스터를 잠그지 않음</li>
+        <li>시작 시각부터 roster snapshot을 동결</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="warning">
+    <strong>완료가 너무 늦은 경우:</strong> 모집 완료 공지가 티어 마감 이후에 전송되면 유효한 티어 수집 창이 없습니다.
+    이 경우 자동으로 마감을 연장하지 않고 관리자에게 안내합니다. 마감 연장은 후속 운영 명령으로 별도 설계합니다.
+  </div>
+
+  <h2 id="architecture">3. 단순화한 추천 아키텍처</h2>
+  <div class="flow">
+    <div><strong>Discord Adapter</strong>prefix 명령, raw reaction, tier message</div>
+    <div><strong>Application</strong>MatchService, SessionActor, TierService, Scheduler</div>
+    <div><strong>Domain</strong>Match, RosterEntry, 상태 전이와 정책</div>
+    <div><strong>Ports</strong>MatchRepository, SyncSink, Clock</div>
+    <div><strong>Infrastructure</strong>SQLite, Discord sender, NoOpSyncSink</div>
+  </div>
+
+  <div class="grid-2">
+    <section class="card">
+      <h3>MVP 런타임</h3>
+      <ul>
+        <li>Python 3.13+, <code>discord.py</code> 2.x</li>
+        <li>단일 프로세스·단일 Discord bot instance</li>
+        <li>세션별 <code>asyncio.Queue</code>와 actor 1개</li>
+        <li><code>aiosqlite</code>, WAL, 단일 batch writer</li>
+        <li><code>zoneinfo</code>, <code>pydantic-settings</code></li>
+        <li>YAML 1개 + Jinja2 텍스트 템플릿 1개</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>유지할 확장 경계</h3>
+      <pre>class MatchRepository(Protocol):
+    async def create_match(...): ...
+    async def get_active_match(...): ...
+    async def apply_reaction_batch(...): ...
+    async def upsert_tier_submission(...): ...
+
+class SyncSink(Protocol):
+    async def publish(snapshot): ...
+
+# MVP wiring
+SQLiteMatchRepository + NoOpSyncSink</pre>
+      <p class="small">FastAPI client, Postgres repository, 원격 sync outbox는 인터페이스만 보존하고 구현하지 않습니다.</p>
+    </section>
+  </div>
+
+  <h3>단순한 외부 효과 처리</h3>
+  <ul>
+    <li>raw reaction handler에서는 메모리 routing과 queue 삽입만 수행합니다.</li>
+    <li>actor가 만든 변경을 writer가 1초 또는 100건 단위로 SQLite에 저장합니다.</li>
+    <li>모집 완료·대기실·관리자 안내는 작은 <code>notification_outbox</code>로 전송합니다.</li>
+    <li>outbox는 <code>PENDING/SENT/FAILED</code>, 시도 횟수, 마지막 오류만 둡니다. dead-letter UI나 재처리 파이프라인은 만들지 않습니다.</li>
+  </ul>
+
+  <h2 id="states">4. 상태와 생명주기</h2>
+  <pre>CREATED → RECRUITING ⇄ FULL → STARTED → CLOSED
+    └───────────────→ CANCELED
+
+CREATED     DB 생성 완료, 공지 메시지 연결 전
+RECRUITING  현재 확정자가 정원 미만
+FULL        현재 확정자가 정원과 같음
+STARTED     시작 시각 도달, 공식 roster snapshot 동결
+CLOSED      관리자 종료 또는 운영상 종료 처리
+CANCELED    시작 전 취소</pre>
+
+  <div class="note">
+    <strong>상태와 milestone을 분리:</strong> “완료 공지를 보냈는가”는 상태가 아니라 <code>recruitment_completed_notified_at</code> 필드입니다.
+    FULL에서 RECRUITING으로 돌아갔다 다시 FULL이 되어도 이 필드가 있으면 완료 공지는 다시 보내지 않습니다.
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>이벤트</th><th>시작 전</th><th>시작 이후</th></tr></thead>
+      <tbody>
+        <tr><td>확정자 ✅ 제거</td><td>철회 처리 후 가장 빠른 대기자 승격. 대기자가 없으면 FULL → RECRUITING</td><td>공식 roster 변경·승격 없음. 관리자에게 제거 사실만 안내</td></tr>
+        <tr><td>대기자 ✅ 제거</td><td>대기열에서 제외</td><td>무시 또는 감사 로그만</td></tr>
+        <tr><td>새 ✅ 추가</td><td>정원 여유 시 확정, 아니면 대기</td><td>공식 roster에 추가하지 않음</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="small">시작 전/후 판정은 actor 처리 지연이 아니라 gateway handler가 기록한 <code>received_at</code>을 기준으로 합니다. <code>received_at &lt; starts_at</code>이면 시작 전 규칙입니다.</p>
+
+  <h2 id="tiers">5. 세션별 티어 수집 규칙</h2>
+  <div class="decision">
+    <strong>유효 범위:</strong>
+    <code>recruitment_completed_notified_at ≤ tier_activity_at &lt; tier_deadline_at</code>.
+    하한은 모집 완료 메시지가 Discord에 성공적으로 전송된 시각이며, 상한은 미포함입니다.
+  </div>
+
+  <h3>어떤 메시지를 인정하는가</h3>
+  <ol>
+    <li>메시지가 설정된 티어 채널에 있어야 합니다.</li>
+    <li>작성자 Discord user ID가 해당 세션의 확정자 또는 대기자 roster에 있어야 합니다.</li>
+    <li>새 메시지는 <code>created_at</code>, 수정 이벤트는 <code>edited_at</code>을 <code>tier_activity_at</code>으로 사용합니다.</li>
+    <li><code>tier_activity_at</code>이 수집 창 안에 있어야 합니다.</li>
+    <li>같은 사용자에게 이미 저장된 후보보다 활동 시각이 최신일 때만 upsert합니다.</li>
+    <li>활동 시각이 같으면 Discord message ID가 큰 쪽을 선택합니다.</li>
+  </ol>
+
+  <div class="grid-2">
+    <section class="card">
+      <h3>인정 예시</h3>
+      <ul>
+        <li>완료 공지 이후 새로 작성한 메시지</li>
+        <li>과거에 작성한 메시지라도 수집 창 안에서 실제 수정한 경우</li>
+        <li>수집 창 안에서 여러 번 작성·수정했다면 활동 시각이 가장 최신인 원문</li>
+        <li>대기자가 수집 창 안에 작성했고 이후 확정자로 승격된 경우</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>불인정 예시</h3>
+      <ul>
+        <li>과거 내전의 기존 메시지를 수정하지 않은 상태로 발견</li>
+        <li>모집 완료 공지 전 작성·수정</li>
+        <li>티어 마감 시각과 같거나 이후 작성·수정</li>
+        <li>해당 세션 roster에 없는 사용자의 메시지</li>
+        <li>마감 이후 수정으로 바뀐 현재 Discord 원문</li>
+      </ul>
+    </section>
+  </div>
+
+  <h3>저장 방식</h3>
+  <pre>tier_submissions UNIQUE(match_id, discord_user_id)
+
+새 qualifying message/edit 도착
+  → 기존 row와 (tier_activity_at, message_id) 비교
+  → 더 최신이면 raw_tier_message, message_id, activity_at, display_name을 교체
+  → 이전 원문 history는 MVP에서 보관하지 않음</pre>
+
+  <ul>
+    <li>현재 저장된 message가 삭제되면 해당 사용자를 미작성으로 되돌립니다.</li>
+    <li>MVP는 과거 후보 history를 저장하지 않으므로 삭제 시 이전 메시지로 자동 fallback하지 않습니다.</li>
+    <li>마감 이후에는 row를 불변 snapshot으로 취급합니다.</li>
+    <li>티어 문자열 검증·배틀태그/역할 티어 파싱은 하지 않습니다.</li>
+  </ul>
+
+  <div class="warning">
+    <strong>봇 오프라인 중 오래된 메시지 수정:</strong> Discord 채널 history는 메시지 생성 순서 중심이므로, 수집 창 전에 작성된 오래된 메시지가 봇 오프라인 중 수정된 사실을 완전하게 복원하기 어렵습니다.
+    MVP는 재시작 시 수집 창 안에 새로 작성된 메시지만 제한적으로 catch-up하고, 오래된 메시지의 오프라인 수정은 사용자 재작성 또는 재수정을 안내합니다.
+  </div>
+
+  <h3>티어 현황</h3>
+  <ul>
+    <li><code>.티어현황</code>: 현재 확정자 중 qualifying submission 보유/미보유 인원 표시</li>
+    <li><code>.티어미작성알림</code>: 현재 미작성 확정자만 mention, 5분 cooldown을 SQLite에 저장</li>
+    <li>수집 창 시작 전에는 “모집 완료 공지 후 수집 시작”으로 응답</li>
+    <li>현재 확정자 전원이 작성하면 관리자 채널에 매치당 한 번만 안내</li>
+    <li>완료 안내 후 roster가 바뀌면 다시 현황을 계산하지만 “전원 완료” 안내는 재전송하지 않음</li>
+  </ul>
+
+  <h2 id="reactions">6. 반응 이벤트와 참가 순서</h2>
+  <h3><code>arrival_seq</code>의 정확한 정의</h3>
+  <div class="success">
+    세션 actor는 자신의 queue에서 raw reaction event를 하나 꺼낼 때마다 1씩 증가하는 <code>arrival_seq</code>를 부여합니다.
+    참가자의 <code>reactionOrder</code>는 그 사용자를 활성 상태로 만든 가장 최근 유효 ADD 이벤트의 <code>arrival_seq</code>입니다.
+  </div>
+
+  <pre>Discord raw reaction event
+  → handler: ✅ / message_id / bot 필터 + received_at 기록 + queue.put_nowait
+  → SessionActor: dequeue
+  → arrival_seq = next_arrival_seq()
+  → ADD/REMOVE/duplicate 상태 전이
+  → batch writer</pre>
+
+  <ul>
+    <li>낮은 <code>arrival_seq</code>가 먼저 반응한 참가자입니다.</li>
+    <li>모든 raw event에 seq가 소비되므로 실제 참가자의 <code>reactionOrder</code>에는 간격이 있을 수 있습니다.</li>
+    <li>활성 사용자의 중복 ADD는 roster를 바꾸지 않습니다.</li>
+    <li>REMOVE 후 다시 ADD하면 새 ADD의 <code>arrival_seq</code>가 reactionOrder가 되어 대기열 끝으로 갑니다.</li>
+    <li>표시용 1~10 순위가 필요하면 현재 확정자를 reactionOrder로 정렬한 뒤 파생하며 DB의 원본 값을 다시 번호 매기지 않습니다.</li>
+  </ul>
+
+  <h3>폭주 처리</h3>
+  <div class="grid-2">
+    <section class="card">
+      <h3>hot path</h3>
+      <ul>
+        <li>DB 접근 없음</li>
+        <li>Discord API 호출 없음</li>
+        <li>티어 채널 검색 없음</li>
+        <li><code>message_id → actor</code> 메모리 lookup</li>
+        <li>queue 삽입 후 즉시 반환</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>actor/writer</h3>
+      <ul>
+        <li>세션당 consumer 1개로 lock 경쟁 제거</li>
+        <li><code>set[user_id]</code>로 중복 O(1) 확인</li>
+        <li>1초 또는 100건 단위 SQLite transaction</li>
+        <li>정원 도달 milestone과 notification outbox를 같은 transaction에 기록</li>
+      </ul>
+    </section>
+  </div>
+
+  <p class="small">Discord 연결이 끊긴 동안의 클릭 순서는 복원할 수 없습니다. MVP에서는 별도 DEGRADED_ORDER 상태나 자동 복구 절차를 만들지 않고, mismatch를 발견하면 관리자 채널에 짧게 알리고 수동 판단으로 넘깁니다.</p>
+
+  <h2 id="command">7. <code>.내전</code> 파싱과 지난 시각 처리</h2>
+  <h3>지원 입력</h3>
+  <pre>.내전 오후6시20분 6ㄷ6클래식
+.내전 오후2시20분
+.내전 18:20
+.내전 23시 6ㄷ6클래식</pre>
+
+  <ul>
+    <li>Unicode NFKC 정규화 후 문자열 앞의 시간 토큰을 파싱하고 나머지를 <code>mode</code> 원문으로 저장합니다.</li>
+    <li>모드가 없고 관리자 기본 모드도 없으면 <code>mode = null</code>로 정상 생성합니다.</li>
+    <li>공지 템플릿은 <code>mode</code>가 null이면 해당 줄을 생략합니다. 설정에 따라 표시만 “일반 내전”으로 대체할 수 있습니다.</li>
+    <li><code>오전12시 = 00:00</code>, <code>오후12시 = 12:00</code>, <code>23시 = 23:00</code>입니다.</li>
+  </ul>
+
+  <h3>지난 시각 기본 흐름</h3>
+  <div class="flow">
+    <div><strong>입력</strong>현재보다 지난 시각</div>
+    <div><strong>Reject</strong>세션/공지를 생성하지 않음</div>
+    <div><strong>확인 안내</strong>“내일 같은 시각?” 버튼 표시</div>
+    <div><strong>관리자 확인</strong>실행자만 120초 내 승인</div>
+    <div><strong>생성</strong>내일 KST 시각으로 새 파싱 결과 생성</div>
+  </div>
+
+  <pre>past_time_policy: reject
+offer_next_day_confirmation: true
+next_day_confirmation_timeout_seconds: 120</pre>
+
+  <ul>
+    <li>기본 정책은 항상 reject이며 자동으로 다음 날을 선택하지 않습니다.</li>
+    <li>확인 버튼을 누르기 전에는 <code>match_sessions</code> row를 만들지 않습니다.</li>
+    <li>명령 실행자만 확인할 수 있고, timeout 또는 봇 재시작 시 확인 요청은 만료됩니다.</li>
+    <li>버튼 구현을 끄면 오류와 함께 “날짜를 확인해 다시 입력” 안내만 보냅니다.</li>
+  </ul>
+
+  <h2 id="templates">8. 관리자 설정과 텍스트 템플릿</h2>
+  <div class="grid-2">
+    <section class="card">
+      <h3><code>config.yaml</code> 한 개</h3>
+      <pre>guild_id: "123..."
+channels:
+  announcement: "111..."
+  tier: "222..."
+  admin: "333..."
+defaults:
+  participant_limit: 10
+  tier_deadline_offset_minutes: 30
+  lobby_offset_minutes: 10
+  past_time_policy: reject
+  offer_next_day_confirmation: true
+  mode_display_fallback: null
+managers:
+  "999...":
+    default_mode: null
+    pick_limit: "연속 2회 제한"
+    ban_list: ["영웅A", "영웅B"]
+    extra_notice: "관리자별 추가 안내"</pre>
+    </section>
+    <section class="card">
+      <h3><code>templates/recruitment.txt</code> 한 개</h3>
+      <pre>⚔️ {{ starts_at_display }} 내전 모집
+{% if mode_display %}모드: {{ mode_display }}{% endif %}
+
+참가: 이 메시지에 ✅ 반응
+티어 마감: {{ tier_deadline_display }}
+대기실 입장: {{ lobby_display }}
+
+{{ manager_rules }}
+{{ manner_notice }}</pre>
+      <p>관리자별 차이는 YAML 값으로만 주입합니다. 전체 layout 파일 분리는 실제 운영에서 필요해질 때 추가합니다.</p>
+    </section>
+  </div>
+
+  <h3>mention 안전</h3>
+  <ul>
+    <li>모집 공지와 YAML 기반 문구는 모든 mention을 차단합니다.</li>
+    <li>완료 공지는 현재 확정자만, 미작성 알림은 현재 미작성 확정자만 허용합니다.</li>
+    <li>대기실 안내는 전송 시점의 확정자만 허용합니다.</li>
+    <li>대기실 안내 후 승격된 사용자는 승격 알림에 즉시 대기실 입장 문구를 함께 보내며 그 사용자 한 명만 mention합니다.</li>
+    <li><code>@everyone</code>, <code>@here</code>, 역할 mention 권한은 부여하지 않습니다.</li>
+  </ul>
+
+  <h2 id="models">9. 주요 데이터 모델과 웹 전달 계약</h2>
+  <details open>
+    <summary>match_sessions</summary>
+    <div>
+      <ul>
+        <li><code>id</code>, guild/manager/channel/message IDs</li>
+        <li><code>mode nullable</code>, <code>participant_limit</code>, <code>status</code></li>
+        <li><code>starts_at_utc</code>, <code>tier_deadline_at_utc</code>, <code>lobby_at_utc</code></li>
+        <li><code>recruitment_completed_notified_at_utc nullable</code> — 티어 수집 창의 하한</li>
+        <li><code>tier_complete_notified_at_utc</code>, <code>lobby_notified_at_utc</code>, <code>last_missing_tier_reminder_at_utc</code></li>
+        <li><code>next_arrival_seq</code>, <code>created_at</code>, <code>updated_at</code></li>
+      </ul>
+    </div>
+  </details>
+
+  <details open>
+    <summary>roster_entries</summary>
+    <div>
+      <ul>
+        <li><code>(match_id, discord_user_id) UNIQUE</code></li>
+        <li><code>discord_display_name_snapshot</code></li>
+        <li><code>reaction_order</code> — 현재 유효 ADD event의 actor <code>arrival_seq</code></li>
+        <li><code>status = CONFIRMED | WAITLISTED | WITHDRAWN</code></li>
+        <li><code>reacted_at</code>, <code>removed_at</code>, <code>promoted_at</code></li>
+      </ul>
+    </div>
+  </details>
+
+  <details open>
+    <summary>tier_submissions</summary>
+    <div>
+      <ul>
+        <li><code>(match_id, discord_user_id) UNIQUE</code></li>
+        <li><code>discord_display_name</code>, <code>raw_tier_message</code></li>
+        <li><code>discord_message_id</code>, <code>tier_activity_at_utc</code>, <code>collected_at_utc</code></li>
+        <li>가장 최신 qualifying 원문 한 건만 보관</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>reaction_events와 notification_outbox</summary>
+    <div>
+      <ul>
+        <li><code>reaction_events</code>: match/user/message, ADD/REMOVE, received_at, arrival_seq, 처리 결과</li>
+        <li><code>notification_outbox</code>: kind, match/channel, payload, allowed user IDs, dedupe key, status, attempts, last_error</li>
+      </ul>
+    </div>
+  </details>
+
+  <h3>Balance 웹 전달 DTO</h3>
+  <div class="decision"><strong>Discord 표시 헤더, 배틀태그 라벨, 역할 줄을 봇에서 재구성하지 않습니다.</strong></div>
+  <pre>{
+  "discordUserId": "123456789012345678",
+  "discordDisplayName": "lemon",
+  "rawTierMessage": "lemon#32146\n마4 / 마4! / 마4",
+  "reactionOrder": 17
+}</pre>
+
+  <ul>
+    <li><code>reactionOrder</code>는 current roster entry의 actor arrival_seq이며 1부터 연속일 필요가 없습니다.</li>
+    <li>웹 export 대상은 세션의 현재 확정자입니다. 대기자·철회자는 제외합니다.</li>
+    <li>티어 미작성 확정자는 payload에서 제외하거나 별도의 missing user ID 목록으로 다루며, 4개 필드에 임의 문자열을 채우지 않습니다.</li>
+    <li>MVP의 <code>NoOpSyncSink</code>는 전송하지 않지만 같은 mapper를 단위 테스트해 향후 API 계약을 고정합니다.</li>
+  </ul>
+
+  <h2 id="scope">10. 실제 MVP 구현 범위</h2>
+  <div class="grid-2">
+    <section class="card">
+      <h3><span class="badge ok">구현</span></h3>
+      <ul>
+        <li><code>.내전 시간 [모드]</code>와 지난 시각 reject/내일 확인</li>
+        <li>단일 YAML 설정·단일 모집 텍스트 템플릿</li>
+        <li>공지 전송과 ✅ 추가</li>
+        <li>raw reaction add/remove, actor arrival_seq, 10명/대기자/승격</li>
+        <li>완료 공지 한 번과 안전한 allowed_mentions</li>
+        <li>완료 공지 이후부터 마감 전까지의 최신 티어 원문 upsert</li>
+        <li><code>.티어현황</code>, <code>.티어미작성알림</code>, 5분 cooldown</li>
+        <li>전원 작성 관리자 알림 한 번</li>
+        <li>시작 10분 전 대기실 알림, 시작 전 로스터 변경 계속 반영</li>
+        <li>시작 시 roster 동결, 시작 후 제거 관리자 알림</li>
+        <li>SQLite repository, 단순 notification outbox, 재시작 복구</li>
+        <li><code>MatchRepository</code>, <code>SyncSink</code>, <code>NoOpSyncSink</code></li>
+        <li>운영 명령 <code>.내전상태</code>, <code>.내전취소</code>, <code>.내전종료</code></li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3><span class="badge out">구현하지 않음</span></h3>
+      <ul>
+        <li>Redis, 분산 lock, 다중 bot instance, sharding</li>
+        <li>FastAPI server/client 실구현, PostgreSQL schema, 실제 원격 sync</li>
+        <li>원격 sync outbox와 고급 dead-letter 재처리 UI/운영</li>
+        <li><code>DEGRADED_ORDER</code> 상태와 정교한 자동 복구 절차</li>
+        <li>동시 다중 내전과 티어 메시지 세션 선택 UI</li>
+        <li>티어 문자열 파싱·검증·팀 밸런싱</li>
+        <li>자동 경고·제재·노쇼 판정</li>
+        <li>관리자 웹 UI와 관리자별 다중 layout 파일</li>
+      </ul>
+    </section>
+  </div>
+
+  <h3>MVP 완료 기준</h3>
+  <ul class="checklist">
+    <li>18명 burst에서 actor arrival_seq에 따라 확정 10명과 대기자가 결정된다.</li>
+    <li>과거 티어 메시지는 자동 연결되지 않는다.</li>
+    <li>완료 공지 후·마감 전 최신 작성/수정 원문만 저장된다.</li>
+    <li>모드 null과 지난 시각 reject 흐름이 정상 작동한다.</li>
+    <li>대기실 알림 후에도 시작 전 제거라면 대기자가 승격된다.</li>
+    <li>시작 이후 reaction은 공식 roster를 바꾸지 않는다.</li>
+    <li>재시작 후 세션·roster·마감·대기실 알림·cooldown이 복구된다.</li>
+    <li>웹 mapper가 정확히 4개 필드만 생성한다.</li>
+  </ul>
+
+  <h2 id="recovery">11. 재시작 및 장애 복구</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>상황</th><th>MVP 동작</th></tr></thead>
+      <tbody>
+        <tr><td>정상 재시작</td><td>CREATED/RECRUITING/FULL/STARTED 세션, roster, message routing, 알림 timestamp, cooldown 복구</td></tr>
+        <tr><td>대기실 안내 전 재시작</td><td><code>lobby_at</code>과 <code>lobby_notified_at</code>을 비교해 다시 예약</td></tr>
+        <tr><td>대기실 시각은 지났지만 시작 전</td><td>현재 확정자에게 늦은 입장 안내 한 번 전송</td></tr>
+        <tr><td>시작 시각 경과</td><td>상태를 STARTED로 전환하고 stale 대기실 ping은 생략</td></tr>
+        <tr><td>완료 알림 전송 timeout</td><td>outbox dedupe key와 최근 봇 메시지 marker를 확인한 뒤 재시도</td></tr>
+        <tr><td>SQLite write 일시 실패</td><td>단일 writer가 짧게 재시도하며 raw handler queue는 유지</td></tr>
+        <tr><td>오프라인 중 새 reaction</td><td>현재 반응자와 로컬 roster mismatch를 관리자에게 알림. 자동 순서 추정 없음</td></tr>
+        <tr><td>오프라인 중 티어 새 메시지</td><td>수집 창 안에 생성된 최근 history를 제한적으로 스캔해 upsert</td></tr>
+        <tr><td>오프라인 중 과거 메시지 수정</td><td>완전 복구하지 않으며 관리자/사용자 재작성 안내</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>별도 <code>scheduled_jobs</code> 시스템은 만들지 않고, <code>match_sessions</code>의 시작·대기실 시각과 알림 timestamp를 15~30초 주기 scheduler가 조회합니다. 서버 시작 시에도 같은 query를 즉시 실행합니다.</p>
+
+  <div class="warning">
+    Discord 전송 성공 직후 DB 기록 전에 프로세스가 종료되는 외부 효과 창은 완전히 없앨 수 없습니다.
+    MVP는 고유 marker와 최근 메시지 대조로 중복을 줄이며, 고급 delivery ledger는 범위에서 제외합니다.
+  </div>
+
+  <h2 id="discord">12. Discord Intents와 최소 권한</h2>
+  <div class="grid-2">
+    <section class="card">
+      <h3>Intent</h3>
+      <ul>
+        <li><code>GUILDS</code></li>
+        <li><code>GUILD_MESSAGES</code></li>
+        <li><code>GUILD_MESSAGE_REACTIONS</code></li>
+        <li><code>MESSAGE_CONTENT</code> — privileged, prefix와 티어 원문에 필요</li>
+      </ul>
+      <p><code>GUILD_MEMBERS</code>와 <code>GUILD_PRESENCES</code>는 MVP에서 사용하지 않습니다.</p>
+    </section>
+    <section class="card">
+      <h3>권한</h3>
+      <ul>
+        <li>부여: VIEW_CHANNEL, SEND_MESSAGES, READ_MESSAGE_HISTORY, ADD_REACTIONS, EMBED_LINKS(사용 시)</li>
+        <li>미부여: ADMINISTRATOR, MANAGE_MESSAGES, MENTION_EVERYONE, MANAGE_ROLES, KICK/BAN</li>
+        <li>완료·미작성·대기실 메시지는 명시된 user ID만 <code>allowed_mentions</code>에 포함</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="note">
+    공식 근거:
+    <a href="https://docs.discord.com/developers/events/gateway">Gateway Intents</a>,
+    <a href="https://docs.discord.com/developers/events/gateway-events">Reaction Events</a>,
+    <a href="https://docs.discord.com/developers/topics/permissions">Permissions</a>,
+    <a href="https://docs.discord.com/developers/resources/message">Allowed Mentions</a>.
+  </div>
+
+  <h2 id="tests">13. 핵심 테스트 시나리오</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>영역</th><th>필수 시나리오</th><th>기대 결과</th></tr></thead>
+      <tbody>
+        <tr><td>티어 창</td><td>완료 공지 전 작성, 공지 직후 작성, 마감 직전/정각/이후 작성</td><td>하한 포함·상한 미포함 규칙</td></tr>
+        <tr><td>과거 메시지</td><td>기존 메시지 미수정, 창 안 수정, 마감 후 수정</td><td>창 안 실제 수정만 최신 후보</td></tr>
+        <tr><td>최신 선택</td><td>새 메시지 후 오래된 메시지 수정, 동일 시각 tie</td><td>activity_at 우선, message ID tie-break</td></tr>
+        <tr><td>티어 삭제</td><td>현재 저장된 message 삭제</td><td>미작성 전환, 이전 history fallback 없음</td></tr>
+        <tr><td>모드</td><td>명시 모드, 관리자 기본, 둘 다 없음</td><td>null 허용, 공지 줄 생략 가능</td></tr>
+        <tr><td>지난 시각</td><td>reject, 실행자 내일 확인, 다른 사용자 버튼, timeout</td><td>확인 전 session 0개, 승인 후 내일 생성 1개</td></tr>
+        <tr><td>arrival_seq</td><td>18명 burst, duplicate, remove/re-add</td><td>actor dequeue 순서, 재진입은 새 reactionOrder</td></tr>
+        <tr><td>시작 경계</td><td>received_at이 시작 직전/정각/직후인 확정자 제거</td><td>직전만 승격, 정각 이후 roster 동결</td></tr>
+        <tr><td>대기실 이후 승격</td><td>시작 5분 전 확정자 제거</td><td>대기자 승격 + 승격자 단독 대기실 안내</td></tr>
+        <tr><td>상태</td><td>FULL→RECRUITING→FULL, STARTED, 취소/종료</td><td>6개 상태 밖의 값 없음, 완료 알림 재전송 없음</td></tr>
+        <tr><td>웹 DTO</td><td>작성/미작성/대기/철회 사용자 export</td><td>확정·작성자만 4필드, 헤더 재구성 없음</td></tr>
+        <tr><td>재시작</td><td>대기실 전후, 시작 전후, cooldown 도중</td><td>중복 최소화 및 timestamp 복구</td></tr>
+        <tr><td>mention</td><td>YAML에 @everyone/역할/사용자 mention 삽입</td><td>실제 ping은 명시 user 목록만</td></tr>
+        <tr><td>hot path</td><td>500 raw event burst</td><td>handler 내부 DB/Discord 호출 0회, 정상 조건 3초 내 저장</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="files">14. 권장 파일 구조와 구현 순서</h2>
+  <pre>owkr-gather-bot/
+├── pyproject.toml
+├── .env.example
+├── config/config.yaml
+├── templates/recruitment.txt
+├── migrations/001_initial.sql
+├── src/owkr_gather_bot/
+│   ├── bot.py
+│   ├── config.py
+│   ├── parsing/match_command.py
+│   ├── domain/models.py
+│   ├── domain/policies.py
+│   ├── application/match_service.py
+│   ├── application/session_actor.py
+│   ├── application/tier_service.py
+│   ├── application/scheduler.py
+│   ├── adapters/discord/commands.py
+│   ├── adapters/discord/events.py
+│   ├── adapters/discord/notifications.py
+│   ├── ports/repositories.py
+│   ├── ports/sync_sink.py
+│   └── infrastructure/sqlite_repository.py
+└── tests/
+    ├── unit/
+    └── integration/</pre>
+
+  <h3>구현 순서</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>순서</th><th>작업 묶음</th><th>검증 게이트</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>config, clock, 명령 파서, 6개 상태 모델</td><td>모드 null·지난 시각 확인 테스트</td></tr>
+        <tr><td>2</td><td>SQLite schema와 MatchRepository</td><td>상태/roster/tier upsert transaction 테스트</td></tr>
+        <tr><td>3</td><td>raw event routing, SessionActor, arrival_seq</td><td>18명 burst·재진입·시작 경계 테스트</td></tr>
+        <tr><td>4</td><td>공지·완료 알림·allowed_mentions·outbox</td><td>완료 1회와 mention 보안 테스트</td></tr>
+        <tr><td>5</td><td>티어 수집 창, 최신 원문, 현황/미작성</td><td>과거 메시지·수정·마감 경계 테스트</td></tr>
+        <tr><td>6</td><td>대기실·STARTED 전환·재시작 복구·운영 명령</td><td>재시작 E2E</td></tr>
+        <tr><td>7</td><td>4필드 mapper와 NoOpSyncSink</td><td>계약 snapshot 테스트</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <details open>
+    <summary>구현 시작 전에 필요한 실제 운영 값</summary>
+    <div>
+      <ul>
+        <li>guild ID, 공지/티어/관리자 채널 ID</li>
+        <li>명령 허용 관리자 user ID 또는 role ID</li>
+        <li>관리자별 기본 모드(nullable), 픽 제한, 밴 목록, 추가 안내</li>
+        <li>티어 마감 offset 기본값, 참가 정원</li>
+        <li>봇 token과 테스트 길드 설치</li>
+      </ul>
+    </div>
+  </details>
+
+  <div class="success">
+    <strong>최종 MVP 형태:</strong> 한 프로세스가 한 길드의 활성 내전 한 건을 관리하고, actor arrival_seq로 모집 순서를 확정하며,
+    완료 공지 이후의 세션 한정 티어 원문만 SQLite에 보존합니다. 외부 API는 연결하지 않지만 repository/sink 경계는 남겨 둡니다.
+  </div>
+
+  <footer>v2는 v1을 대체하는 구현 전 검토안입니다. 실제 봇 구현은 이 문서 승인 이후 진행합니다.</footer>
+</main>
+</body>
+</html>
