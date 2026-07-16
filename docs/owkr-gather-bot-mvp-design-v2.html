@@ -202,12 +202,12 @@
         <tr><td>1</td><td>티어 인정 시작점 제한</td><td><code>recruitment_completed_notified_at ≤ activity_at &lt; tier_deadline_at</code>만 인정</td></tr>
         <tr><td>2</td><td>세션별 최신 원문</td><td>Discord user ID + 세션 수집 창으로 연결하고, 가장 최신 qualifying activity만 upsert</td></tr>
         <tr><td>3</td><td>모드 생략 허용</td><td>DB에는 <code>mode = null</code>. 템플릿은 모드 줄을 생략하거나 선택적으로 “일반 내전” 표시</td></tr>
-        <tr><td>4</td><td>지난 시각 안전 처리</td><td>기본 <code>reject</code>. 선택적으로 실행 관리자에게 “내일 생성” 버튼 확인</td></tr>
+        <tr><td>4</td><td>지난 시각 안전 처리</td><td><code>reject</code>하고 미래 시각 재입력을 안내. 다음 날 자동 생성과 확인 버튼은 사용하지 않음</td></tr>
         <tr><td>5</td><td>10분 전 로스터 잠금 제거</td><td>시작 전까지 승격. 시작 시각부터 공식 로스터를 동결하고 제거는 관리자 알림만</td></tr>
         <tr><td>6</td><td>참가 순서 정의</td><td>세션 actor가 수신한 raw reaction event dequeue 순서의 <code>arrival_seq</code></td></tr>
         <tr><td>7</td><td>웹 티어 DTO 축소</td><td><code>discordUserId</code>, <code>discordDisplayName</code>, <code>rawTierMessage</code>, <code>reactionOrder</code>만 전달</td></tr>
         <tr><td>8</td><td>MVP 인프라 축소</td><td>Redis, 다중 인스턴스, FastAPI 구현, 고급 dead-letter, 정교한 불확실 순서 절차 제외</td></tr>
-        <tr><td>9</td><td>템플릿 축소</td><td>단일 YAML/JSON 설정 + 공통 텍스트 템플릿 1개</td></tr>
+        <tr><td>9</td><td>템플릿 축소</td><td>단일 YAML 설정 + 모집/모집 완료 Jinja 텍스트 템플릿</td></tr>
         <tr><td>10</td><td>상태 축소</td><td><code>CREATED, RECRUITING, FULL, STARTED, CLOSED, CANCELED</code></td></tr>
       </tbody>
     </table>
@@ -244,7 +244,7 @@
 
   <h2 id="architecture">3. 단순화한 추천 아키텍처</h2>
   <div class="flow">
-    <div><strong>Discord Adapter</strong>prefix 명령, raw reaction, tier message</div>
+    <div><strong>Discord Adapter</strong>slash 명령, raw reaction, tier message</div>
     <div><strong>Application</strong>MatchService, SessionActor, TierService, Scheduler</div>
     <div><strong>Domain</strong>Match, RosterEntry, 상태 전이와 정책</div>
     <div><strong>Ports</strong>MatchRepository, SyncSink, Clock</div>
@@ -260,7 +260,7 @@
         <li>세션별 <code>asyncio.Queue</code>와 actor 1개</li>
         <li><code>aiosqlite</code>, WAL, 단일 batch writer</li>
         <li><code>zoneinfo</code>, <code>pydantic-settings</code></li>
-        <li>YAML 1개 + Jinja2 텍스트 템플릿 1개</li>
+        <li>YAML 1개 + 모집/모집 완료 Jinja2 텍스트 템플릿</li>
       </ul>
     </section>
     <section class="card">
@@ -378,8 +378,9 @@ CANCELED    시작 전 취소</pre>
 
   <h3>티어 현황</h3>
   <ul>
-    <li><code>.티어현황</code>: 현재 확정자 중 qualifying submission 보유/미보유 인원 표시</li>
-    <li><code>.티어미작성알림</code>: 현재 미작성 확정자만 mention, 5분 cooldown을 SQLite에 저장</li>
+    <li><code>/티어현황</code>: 현재 확정자 중 qualifying submission 보유/미보유 인원 표시</li>
+    <li><code>/티어미작성알림</code>: 현재 미작성 확정자만 mention, 5분 cooldown을 SQLite에 저장</li>
+    <li>티어 마감 정각에는 미작성 확정 참가자를 outbox로 한 번 자동 mention하며, 마감 이후 작성은 인정하지 않음</li>
     <li>수집 창 시작 전에는 “모집 완료 공지 후 수집 시작”으로 응답</li>
     <li>현재 확정자 전원이 작성하면 관리자 채널에 매치당 한 번만 안내</li>
     <li>완료 안내 후 roster가 바뀌면 다시 현황을 계산하지만 “전원 완료” 안내는 재전송하지 않음</li>
@@ -431,13 +432,14 @@ CANCELED    시작 전 취소</pre>
   </div>
 
   <p class="small">Discord 연결이 끊긴 동안의 클릭 순서는 복원할 수 없습니다. MVP에서는 별도 DEGRADED_ORDER 상태나 자동 복구 절차를 만들지 않고, mismatch를 발견하면 관리자 채널에 짧게 알리고 수동 판단으로 넘깁니다.</p>
+  <p class="small">모집 메시지의 봇 seed ✅는 실제 참가자가 0명일 때만 유지합니다. 참가자가 생기면 제거해 표시 숫자를 실제 인원과 맞추고, 마지막 참가자가 반응을 제거하면 비동기 reconciliation 작업이 ✅를 다시 추가합니다.</p>
 
-  <h2 id="command">7. <code>.내전</code> 파싱과 지난 시각 처리</h2>
+  <h2 id="command">7. <code>/내전</code> 파싱과 지난 시각 처리</h2>
   <h3>지원 입력</h3>
-  <pre>.내전 오후6시20분 6ㄷ6클래식
-.내전 오후2시20분
-.내전 18:20
-.내전 23시 6ㄷ6클래식</pre>
+  <pre>/내전 시간:오후6시20분 모드:6ㄷ6클래식
+/내전 시간:오후2시20분
+/내전 시간:18:20
+/내전 시간:23시 모드:6ㄷ6클래식</pre>
 
   <ul>
     <li>Unicode NFKC 정규화 후 문자열 앞의 시간 토큰을 파싱하고 나머지를 <code>mode</code> 원문으로 저장합니다.</li>
@@ -450,20 +452,14 @@ CANCELED    시작 전 취소</pre>
   <div class="flow">
     <div><strong>입력</strong>현재보다 지난 시각</div>
     <div><strong>Reject</strong>세션/공지를 생성하지 않음</div>
-    <div><strong>확인 안내</strong>“내일 같은 시각?” 버튼 표시</div>
-    <div><strong>관리자 확인</strong>실행자만 120초 내 승인</div>
-    <div><strong>생성</strong>내일 KST 시각으로 새 파싱 결과 생성</div>
+    <div><strong>안내</strong>미래 시각으로 다시 입력하도록 안내</div>
   </div>
 
-  <pre>past_time_policy: reject
-offer_next_day_confirmation: true
-next_day_confirmation_timeout_seconds: 120</pre>
+  <pre>past_time_policy: reject</pre>
 
   <ul>
-    <li>기본 정책은 항상 reject이며 자동으로 다음 날을 선택하지 않습니다.</li>
-    <li>확인 버튼을 누르기 전에는 <code>match_sessions</code> row를 만들지 않습니다.</li>
-    <li>명령 실행자만 확인할 수 있고, timeout 또는 봇 재시작 시 확인 요청은 만료됩니다.</li>
-    <li>버튼 구현을 끄면 오류와 함께 “날짜를 확인해 다시 입력” 안내만 보냅니다.</li>
+    <li>항상 reject하며 자동으로 다음 날을 선택하지 않습니다.</li>
+    <li><code>match_sessions</code> row를 만들지 않고 “미래 시각으로 다시 입력” 안내만 보냅니다.</li>
   </ul>
 
   <h2 id="templates">8. 관리자 설정과 텍스트 템플릿</h2>
@@ -480,7 +476,7 @@ defaults:
   tier_deadline_offset_minutes: 30
   lobby_offset_minutes: 10
   past_time_policy: reject
-  offer_next_day_confirmation: true
+  recruitment_role_id: "1527196510431871007"
   mode_display_fallback: null
 managers:
   "999...":
@@ -490,24 +486,41 @@ managers:
     extra_notice: "관리자별 추가 안내"</pre>
     </section>
     <section class="card">
-      <h3><code>templates/recruitment.txt</code> 한 개</h3>
-      <pre>⚔️ {{ starts_at_display }} 내전 모집
-{% if mode_display %}모드: {{ mode_display }}{% endif %}
+      <h3>모집 Embed + <code>templates/recruitment.txt</code></h3>
+      <pre>카드 밖: @내전알람 @관리자님이 여는 [시각] 내전! ✅ 반응으로 참가해 주세요.
 
-참가: 이 메시지에 ✅ 반응
-티어 마감: {{ tier_deadline_display }}
-대기실 입장: {{ lobby_display }}
+Embed 제목: 내전 모집
+본문: 시작·모드·선착순·티어 채널·마감·대기실을 짧은 문장으로 표시
 
+설명 템플릿:
+{{ participation_notice }}
+{{ tier_notice }}
 {{ manager_rules }}
 {{ manner_notice }}</pre>
-      <p>관리자별 차이는 YAML 값으로만 주입합니다. 전체 layout 파일 분리는 실제 운영에서 필요해질 때 추가합니다.</p>
+      <p>필드를 나열하지 않는 짧은 Discord 모집글 형태로 표시합니다. 시간은 native timestamp를 사용하고 관리자별 차이는 YAML 값으로만 주입합니다. 모집 카드에는 <code>EMBED_LINKS</code> 권한이 필요합니다.</p>
     </section>
   </div>
 
+  <h3>모집 완료 공지 템플릿</h3>
+  <pre>templates/recruitment_complete.txt
+
+{{ starts_at }}          전체 시작 일시
+{{ start_time }}         시작 시각
+{{ starts_in }}          상대 시각
+{{ mode }}               모드
+{{ tier_channel }}       티어 채널 mention
+{{ tier_deadline }}      티어 마감
+{{ lobby_time }}         대기실 입장
+{{ lobby_name }}         대기실 이름
+{{ participant_count }}  확정 참가자 수
+{{ manner_notice }}      매너 안내</pre>
+  <p><code>/모집완료문구</code>는 비개발자용 Components v2 모달을 엽니다. 관리자는 시작 제목, 티어 제목, 티어 안내, 작성 양식·예시, 추가 안내만 입력하고 시간·채널·일정은 봇이 자동으로 배치합니다. 모집 완료 공지에는 참가자 목록을 표시하지 않습니다. Jinja 변수는 기본 화면에 노출하지 않습니다. 전체 레이아웃을 직접 수정하는 개발자용 기능은 <code>/모집완료고급편집</code>으로 분리합니다. 저장 결과는 다음 완료 공지부터 재시작 없이 적용하며 Discord 메시지 2,000자 제한을 렌더링 후 검증합니다.</p>
+  <p>모집 완료 공지는 사용자 mention을 모두 비활성화합니다. 사용자 호출이 필요한 티어 미작성 알림과 대기실 안내만 대상 사용자 ID를 <code>allowed_mentions.users</code>에 포함합니다. Jinja sandbox와 StrictUndefined로 객체 내부 접근, 알 수 없는 변수, 2,000자 초과 결과를 저장 단계에서 거부합니다.</p>
+
   <h3>mention 안전</h3>
   <ul>
-    <li>모집 공지와 YAML 기반 문구는 모든 mention을 차단합니다.</li>
-    <li>완료 공지는 현재 확정자만, 미작성 알림은 현재 미작성 확정자만 허용합니다.</li>
+    <li>모집 공지는 <code>recruitment_role_id</code> 역할 하나만 허용하고 YAML 기반 임의 mention은 차단합니다.</li>
+    <li>완료 공지는 사용자 mention을 차단하고, 미작성 알림과 대기실 안내만 해당 대상자를 허용합니다.</li>
     <li>대기실 안내는 전송 시점의 확정자만 허용합니다.</li>
     <li>대기실 안내 후 승격된 사용자는 승격 알림에 즉시 대기실 입장 문구를 함께 보내며 그 사용자 한 명만 mention합니다.</li>
     <li><code>@everyone</code>, <code>@here</code>, 역할 mention 권한은 부여하지 않습니다.</li>
@@ -584,19 +597,20 @@ managers:
     <section class="card">
       <h3><span class="badge ok">구현</span></h3>
       <ul>
-        <li><code>.내전 시간 [모드]</code>와 지난 시각 reject/내일 확인</li>
-        <li>단일 YAML 설정·단일 모집 텍스트 템플릿</li>
+        <li><code>/내전 시간 [모드]</code>와 지난 시각 reject</li>
+        <li>단일 YAML 설정·모집/모집 완료 텍스트 템플릿</li>
         <li>공지 전송과 ✅ 추가</li>
         <li>raw reaction add/remove, actor arrival_seq, 10명/대기자/승격</li>
         <li>완료 공지 한 번과 안전한 allowed_mentions</li>
         <li>완료 공지 이후부터 마감 전까지의 최신 티어 원문 upsert</li>
-        <li><code>.티어현황</code>, <code>.티어미작성알림</code>, 5분 cooldown</li>
+        <li><code>/티어현황</code>, <code>/티어미작성알림</code>, 5분 cooldown</li>
+        <li>티어 마감 정각 미작성 확정 참가자 자동 mention 1회</li>
         <li>전원 작성 관리자 알림 한 번</li>
         <li>시작 10분 전 대기실 알림, 시작 전 로스터 변경 계속 반영</li>
         <li>시작 시 roster 동결, 시작 후 제거 관리자 알림</li>
         <li>SQLite repository, 단순 notification outbox, 재시작 복구</li>
         <li><code>MatchRepository</code>, <code>SyncSink</code>, <code>NoOpSyncSink</code></li>
-        <li>운영 명령 <code>.내전상태</code>, <code>.내전취소</code>, <code>.내전종료</code></li>
+        <li>운영 명령 <code>/내전상태</code>, <code>/내전취소</code>, <code>/내전종료</code></li>
       </ul>
     </section>
     <section class="card">
@@ -659,15 +673,17 @@ managers:
         <li><code>GUILDS</code></li>
         <li><code>GUILD_MESSAGES</code></li>
         <li><code>GUILD_MESSAGE_REACTIONS</code></li>
-        <li><code>MESSAGE_CONTENT</code> — privileged, prefix와 티어 원문에 필요</li>
+        <li><code>MESSAGE_CONTENT</code> — privileged, 티어 원문 수집에 필요</li>
       </ul>
       <p><code>GUILD_MEMBERS</code>와 <code>GUILD_PRESENCES</code>는 MVP에서 사용하지 않습니다.</p>
     </section>
     <section class="card">
       <h3>권한</h3>
       <ul>
-        <li>부여: VIEW_CHANNEL, SEND_MESSAGES, READ_MESSAGE_HISTORY, ADD_REACTIONS, EMBED_LINKS(사용 시)</li>
+        <li>OAuth2 scope: <code>bot</code>, <code>applications.commands</code></li>
+        <li>부여: VIEW_CHANNEL, SEND_MESSAGES, READ_MESSAGE_HISTORY, ADD_REACTIONS, EMBED_LINKS</li>
         <li>미부여: ADMINISTRATOR, MANAGE_MESSAGES, MENTION_EVERYONE, MANAGE_ROLES, KICK/BAN</li>
+        <li>slash invocation은 일반 사용자 메시지를 만들지 않으며, 취소 시 봇이 작성한 모집 공지만 직접 삭제</li>
         <li>완료·미작성·대기실 메시지는 명시된 user ID만 <code>allowed_mentions</code>에 포함</li>
       </ul>
     </section>
@@ -690,8 +706,9 @@ managers:
         <tr><td>과거 메시지</td><td>기존 메시지 미수정, 창 안 수정, 마감 후 수정</td><td>창 안 실제 수정만 최신 후보</td></tr>
         <tr><td>최신 선택</td><td>새 메시지 후 오래된 메시지 수정, 동일 시각 tie</td><td>activity_at 우선, message ID tie-break</td></tr>
         <tr><td>티어 삭제</td><td>현재 저장된 message 삭제</td><td>미작성 전환, 이전 history fallback 없음</td></tr>
+        <tr><td>마감 미작성</td><td>마감 정각 scheduler 중복 tick·재시작</td><td>현재 미작성 확정 참가자만 한 번 mention</td></tr>
         <tr><td>모드</td><td>명시 모드, 관리자 기본, 둘 다 없음</td><td>null 허용, 공지 줄 생략 가능</td></tr>
-        <tr><td>지난 시각</td><td>reject, 실행자 내일 확인, 다른 사용자 버튼, timeout</td><td>확인 전 session 0개, 승인 후 내일 생성 1개</td></tr>
+        <tr><td>지난 시각</td><td>현재보다 지난 시각 입력</td><td>session 0개, 미래 시각 재입력 안내</td></tr>
         <tr><td>arrival_seq</td><td>18명 burst, duplicate, remove/re-add</td><td>actor dequeue 순서, 재진입은 새 reactionOrder</td></tr>
         <tr><td>시작 경계</td><td>received_at이 시작 직전/정각/직후인 확정자 제거</td><td>직전만 승격, 정각 이후 roster 동결</td></tr>
         <tr><td>대기실 이후 승격</td><td>시작 5분 전 확정자 제거</td><td>대기자 승격 + 승격자 단독 대기실 안내</td></tr>
@@ -736,7 +753,7 @@ managers:
     <table>
       <thead><tr><th>순서</th><th>작업 묶음</th><th>검증 게이트</th></tr></thead>
       <tbody>
-        <tr><td>1</td><td>config, clock, 명령 파서, 6개 상태 모델</td><td>모드 null·지난 시각 확인 테스트</td></tr>
+        <tr><td>1</td><td>config, clock, 명령 파서, 6개 상태 모델</td><td>모드 null·지난 시각 reject 테스트</td></tr>
         <tr><td>2</td><td>SQLite schema와 MatchRepository</td><td>상태/roster/tier upsert transaction 테스트</td></tr>
         <tr><td>3</td><td>raw event routing, SessionActor, arrival_seq</td><td>18명 burst·재진입·시작 경계 테스트</td></tr>
         <tr><td>4</td><td>공지·완료 알림·allowed_mentions·outbox</td><td>완료 1회와 mention 보안 테스트</td></tr>
