@@ -57,13 +57,6 @@ class MatchScheduler:
                     continue
                 if now >= session.lobby_at and session.lobby_notified_at is None:
                     await self._repository.enqueue_lobby_notification(session.id, now)
-                if session.recruitment_completed_notified_at is not None:
-                    await self._repository.enqueue_tier_complete_if_ready(session.id, now)
-                    if now >= session.tier_deadline_at:
-                        await self._repository.enqueue_tier_missing_reminder_if_due(
-                            session.id,
-                            now,
-                        )
             except Exception:
                 logger.exception(
                     "scheduler session tick failed match_id=%s match_code=%s",

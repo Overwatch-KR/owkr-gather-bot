@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from src.adapters.discord_adapter import (
     CancelMatchConfirmationView,
     CreateMatchConfirmationView,
     DiscordNotificationTransport,
+    EditMatchModal,
     GatherCog,
     ManagementCommandCheckFailure,
     RecruitmentCompleteCopyModal,
@@ -31,7 +33,6 @@ from src.application.rendering import (
     RenderedNotification,
 )
 from src.application.tier_collector import TierRouteResult, TierRouteStatus
-
 from tests.helpers import make_config, make_session
 
 
@@ -140,8 +141,8 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
             {
                 "내전",
                 "티어현황",
-                "티어미작성알림",
                 "내전상태",
+                "내전대타",
                 "내전취소",
                 "공지문구",
             },
@@ -157,10 +158,15 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(match_parameters["시간"].autocomplete)
         self.assertTrue(match_parameters["모드"].autocomplete)
         self.assertFalse(commands["티어현황"].parameters[0].required)
-        self.assertFalse(commands["티어미작성알림"].parameters[0].required)
         self.assertFalse(commands["내전상태"].parameters[0].required)
+        substitute_parameters = {
+            parameter.name: parameter
+            for parameter in commands["내전대타"].parameters
+        }
+        self.assertEqual(set(substitute_parameters), {"내전"})
+        self.assertTrue(substitute_parameters["내전"].required)
         self.assertTrue(commands["내전취소"].parameters[0].required)
-        for name in ("티어현황", "티어미작성알림", "내전상태", "내전취소"):
+        for name in ("티어현황", "내전상태", "내전대타", "내전취소"):
             self.assertTrue(commands[name].parameters[0].autocomplete)
 
     async def test_simple_copy_modal_hides_template_variables(self) -> None:
@@ -172,7 +178,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(modal.title, "모집 완료 공지 문구")
         self.assertEqual(modal.start_heading_input.default, "내전 시작")
-        self.assertEqual(modal.tier_heading_input.default, "티어 작성")
+        self.assertEqual(modal.tier_heading_input.default, "👀 티어 작성 방법")
         self.assertEqual(
             modal.tier_format_example_input.default,
             "배틀태그\n뿅뿅이#31243\n그마5 / 그마2 / 그마5",
@@ -221,13 +227,61 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [child.label for child in create_view.children],
-            ["생성", "취소"],
+            ["생성", "시간·모드 수정", "취소"],
         )
         self.assertEqual(
             [child.label for child in cancel_view.children],
             ["내전 취소", "돌아가기"],
         )
         self.assertEqual(match_status_label(session.status), "모집 중")
+
+    async def test_match_edit_modal_prefills_and_refreshes_confirmation(
+        self,
+    ) -> None:
+        original = MagicMock(spec=discord.Interaction)
+        original.user.id = 200
+        original.edit_original_response = AsyncMock()
+        session = make_session()
+        parsed = SimpleNamespace(
+            starts_at=session.starts_at,
+            tier_deadline_at=session.tier_deadline_at,
+            lobby_at=session.lobby_at,
+            mode="일반 내전",
+        )
+        updated = SimpleNamespace(
+            starts_at=session.starts_at + timedelta(hours=1),
+            tier_deadline_at=session.tier_deadline_at
+            + timedelta(hours=1),
+            lobby_at=session.lobby_at + timedelta(hours=1),
+            mode="6ㄷ6클래식",
+        )
+        cog = object.__new__(GatherCog)
+        cog._config = make_config()
+        cog._parser = SimpleNamespace(parse=MagicMock(return_value=updated))
+        cog._clock = SimpleNamespace(now=lambda: session.created_at)
+        cog._coordinator = SimpleNamespace(
+            lobby_assignment_for=lambda starts_at: (105, "대기실 1번")
+        )
+        view = CreateMatchConfirmationView(cog, original, parsed)
+        modal = EditMatchModal(view)
+        modal.time_input._value = "오후 9시"
+        modal.mode_input._value = "6ㄷ6클래식"
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=200),
+            response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()),
+        )
+
+        await modal.on_submit(interaction)
+
+        cog._parser.parse.assert_called_once_with(
+            "오후 9시 6ㄷ6클래식",
+            now=session.created_at,
+            default_mode=None,
+        )
+        self.assertIs(view.parsed, updated)
+        original.edit_original_response.assert_awaited_once()
+        refreshed = original.edit_original_response.await_args.kwargs["content"]
+        self.assertIn("6ㄷ6클래식", refreshed)
 
     async def test_create_confirmation_creates_match_and_shows_announcement_link(
         self,
@@ -303,6 +357,16 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(choices[0].value, "A7K2")
         self.assertNotIn("internal-uuid", choices[0].name)
+
+    def test_match_status_heading_only_shows_start_time(self) -> None:
+        session = make_session(match_id="internal-uuid", match_code="A7K2")
+
+        label = GatherCog._match_status_time_label(session)
+
+        self.assertEqual(label, "오후 8시")
+        self.assertNotIn("internal-uuid", label)
+        self.assertNotIn("A7K2", label)
+        self.assertNotIn("일반 내전", label)
 
     def test_management_check_accepts_configured_role_in_command_channel(self) -> None:
         config = replace(

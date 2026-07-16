@@ -2,10 +2,10 @@
 {% if mode_display %}{{ mode_display }}
 {% endif %}
 {{ participation_notice }}
-첫 **{{ participant_limit }}명**까지 확정, 이후는 대기입니다.
+첫 **{{ participant_limit }}명**까지 확정, 이후는 대기열에 자동 등록됩니다.
 
 모집이 완료되면 {{ tier_channel_mention }}에 티어를 적어 주세요.
-티어 마감 {{ tier_deadline_display }} · 대기실 {{ lobby_display }}
+티어 마감 {{ tier_deadline_display }} · 대기실 입장 {{ lobby_display }} · {{ lobby_name }}
 {% if manager_rules %}
 
 {{ manager_rules }}

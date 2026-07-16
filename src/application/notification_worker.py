@@ -5,7 +5,7 @@ import logging
 from typing import Protocol
 
 from src.domain.clock import Clock
-from src.domain.models import NotificationRecord
+from src.domain.models import NotificationKind, NotificationRecord
 from src.ports.repositories import MatchRepository
 
 from .coordinator import SessionCoordinator
@@ -67,6 +67,27 @@ class NotificationWorker:
 
     async def _deliver(self, notification: NotificationRecord) -> None:
         try:
+            if notification.kind in {
+                NotificationKind.TIER_MISSING_REMINDER,
+                NotificationKind.TIER_COMPLETE,
+            }:
+                sent_at = self._clock.now()
+                await self._repository.mark_notification_sent(
+                    notification,
+                    None,
+                    sent_at,
+                )
+                self._coordinator.mark_notification_sent(
+                    notification.match_id,
+                    notification.kind,
+                    sent_at,
+                )
+                logger.info(
+                    "disabled tier follow-up skipped match_id=%s kind=%s",
+                    notification.match_id,
+                    notification.kind.value,
+                )
+                return
             session = await self._repository.get_match(notification.match_id)
             if session is None or not session.is_automatic():
                 raise RuntimeError("match is no longer active")

@@ -19,6 +19,8 @@ from src.domain.models import (
     ReactionMutation,
     RosterEntry,
     RosterStatus,
+    SubstituteRecruitment,
+    SubstituteRecruitmentStatus,
     TierMessageBinding,
     TierDeleteMutation,
     TierParticipantStatus,
@@ -209,6 +211,7 @@ class SQLiteMatchRepository(MatchRepository):
                         tier_channel_id, tier_anchor_message_id,
                         admin_channel_id, mode, participant_limit,
                         status, starts_at_utc, tier_deadline_at_utc, lobby_at_utc,
+                        lobby_voice_channel_id, lobby_name,
                         full_reached_at_utc, recruitment_completed_notified_at_utc,
                         tier_complete_notified_at_utc,
                         tier_missing_reminder_notified_at_utc, lobby_notified_at_utc,
@@ -216,7 +219,7 @@ class SQLiteMatchRepository(MatchRepository):
                         created_at_utc, updated_at_utc
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                     """,
                     (
@@ -238,6 +241,8 @@ class SQLiteMatchRepository(MatchRepository):
                         _to_db(session.starts_at),
                         _to_db(session.tier_deadline_at),
                         _to_db(session.lobby_at),
+                        session.lobby_voice_channel_id,
+                        session.lobby_name,
                         _to_db(session.full_reached_at) if session.full_reached_at else None,
                         _to_db(session.recruitment_completed_notified_at)
                         if session.recruitment_completed_notified_at
@@ -303,6 +308,18 @@ class SQLiteMatchRepository(MatchRepository):
                         NotificationStatus.SENDING.value,
                     ),
                 )
+                await self.connection.execute(
+                    """
+                    UPDATE substitute_recruitments
+                    SET status = ?
+                    WHERE match_id = ? AND status = ?
+                    """,
+                    (
+                        SubstituteRecruitmentStatus.CANCELED.value,
+                        match_id,
+                        SubstituteRecruitmentStatus.OPEN.value,
+                    ),
+                )
                 await self.connection.commit()
             except Exception:
                 await self.connection.rollback()
@@ -329,6 +346,18 @@ class SQLiteMatchRepository(MatchRepository):
                         match_id,
                         NotificationStatus.PENDING.value,
                         NotificationStatus.SENDING.value,
+                    ),
+                )
+                await self.connection.execute(
+                    """
+                    UPDATE substitute_recruitments
+                    SET status = ?
+                    WHERE match_id = ? AND status = ?
+                    """,
+                    (
+                        SubstituteRecruitmentStatus.CANCELED.value,
+                        match_id,
+                        SubstituteRecruitmentStatus.OPEN.value,
                     ),
                 )
                 await self.connection.commit()
@@ -400,6 +429,103 @@ class SQLiteMatchRepository(MatchRepository):
         )
         return [self._roster_from_row(row) for row in rows]
 
+    async def create_substitute_recruitment(
+        self,
+        match_id: str,
+        discord_message_id: int,
+        now: datetime,
+    ) -> SubstituteRecruitment:
+        async with self._write_lock:
+            await self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                session = await self._fetchone(
+                    """
+                    SELECT full_reached_at_utc
+                    FROM match_sessions
+                    WHERE id = ? AND status = ?
+                    """,
+                    (match_id, MatchStatus.FULL.value),
+                )
+                if session is None or session["full_reached_at_utc"] is None:
+                    raise ValueError("모집이 완료된 활성 내전이 아닙니다.")
+                await self.connection.execute(
+                    """
+                    INSERT INTO substitute_recruitments (
+                        discord_message_id, match_id, status, created_at_utc
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        discord_message_id,
+                        match_id,
+                        SubstituteRecruitmentStatus.OPEN.value,
+                        _to_db(now),
+                    ),
+                )
+                await self.connection.commit()
+            except Exception:
+                await self.connection.rollback()
+                raise
+        return SubstituteRecruitment(
+            match_id=match_id,
+            discord_message_id=discord_message_id,
+            status=SubstituteRecruitmentStatus.OPEN,
+            created_at=now,
+        )
+
+    async def cancel_substitute_recruitment(
+        self,
+        discord_message_id: int,
+        now: datetime,
+    ) -> None:
+        await self._execute_write(
+            """
+            UPDATE substitute_recruitments
+            SET status = ?
+            WHERE discord_message_id = ? AND status = ?
+            """,
+            (
+                SubstituteRecruitmentStatus.CANCELED.value,
+                discord_message_id,
+                SubstituteRecruitmentStatus.OPEN.value,
+            ),
+        )
+
+    async def get_active_substitute_recruitments(
+        self,
+        guild_id: int,
+    ) -> list[SubstituteRecruitment]:
+        rows = await self._fetchall(
+            """
+            SELECT sr.*
+            FROM substitute_recruitments AS sr
+            JOIN match_sessions AS ms ON ms.id = sr.match_id
+            WHERE ms.guild_id = ?
+              AND ms.status IN (?, ?, ?)
+              AND sr.status IN (?, ?)
+            ORDER BY sr.created_at_utc, sr.discord_message_id
+            """,
+            (
+                guild_id,
+                *ACTIVE_STATUSES,
+                SubstituteRecruitmentStatus.OPEN.value,
+                SubstituteRecruitmentStatus.FILLED.value,
+            ),
+        )
+        return [self._substitute_recruitment_from_row(row) for row in rows]
+
+    async def get_open_substitute_recruitment(
+        self,
+        match_id: str,
+    ) -> SubstituteRecruitment | None:
+        row = await self._fetchone(
+            """
+            SELECT * FROM substitute_recruitments
+            WHERE match_id = ? AND status = ?
+            """,
+            (match_id, SubstituteRecruitmentStatus.OPEN.value),
+        )
+        return self._substitute_recruitment_from_row(row) if row else None
+
     async def get_tier_candidates(
         self,
         guild_id: int,
@@ -415,10 +541,22 @@ class SQLiteMatchRepository(MatchRepository):
               AND m.status IN (?, ?, ?)
               AND r.discord_user_id = ?
               AND r.status IN (?, ?)
-              AND m.recruitment_completed_notified_at_utc IS NOT NULL
-              AND m.recruitment_completed_notified_at_utc <= ?
-              AND m.tier_deadline_at_utc > ?
               AND m.starts_at_utc > ?
+              AND (
+                    (
+                        m.recruitment_completed_notified_at_utc IS NOT NULL
+                        AND m.recruitment_completed_notified_at_utc <= ?
+                        AND m.tier_deadline_at_utc > ?
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM substitute_recruitments sr
+                        WHERE sr.match_id = m.id
+                          AND sr.status = ?
+                          AND sr.recruited_user_id = r.discord_user_id
+                          AND sr.filled_at_utc <= ?
+                    )
+              )
             ORDER BY m.starts_at_utc, m.created_at_utc, m.id
             """,
             (
@@ -430,9 +568,58 @@ class SQLiteMatchRepository(MatchRepository):
                 _to_db(activity_at),
                 _to_db(activity_at),
                 _to_db(activity_at),
+                SubstituteRecruitmentStatus.FILLED.value,
+                _to_db(activity_at),
             ),
         )
         return [self._session_from_row(row) for row in rows]
+
+    async def is_tier_activity_allowed(
+        self,
+        match_id: str,
+        discord_user_id: int,
+        activity_at: datetime,
+    ) -> bool:
+        row = await self._fetchone(
+            "SELECT * FROM match_sessions WHERE id = ?",
+            (match_id,),
+        )
+        if row is None:
+            return False
+        return await self._is_tier_activity_allowed(
+            self._session_from_row(row),
+            discord_user_id,
+            activity_at,
+        )
+
+    async def _is_tier_activity_allowed(
+        self,
+        session: MatchSession,
+        discord_user_id: int,
+        activity_at: datetime,
+    ) -> bool:
+        if session.accepts_tier_activity_at(activity_at):
+            return True
+        if not session.accepts_activity_at(activity_at):
+            return False
+        row = await self._fetchone(
+            """
+            SELECT 1
+            FROM substitute_recruitments
+            WHERE match_id = ?
+              AND status = ?
+              AND recruited_user_id = ?
+              AND filled_at_utc <= ?
+            LIMIT 1
+            """,
+            (
+                session.id,
+                SubstituteRecruitmentStatus.FILLED.value,
+                discord_user_id,
+                _to_db(activity_at),
+            ),
+        )
+        return row is not None
 
     async def get_tier_binding(
         self,
@@ -491,7 +678,11 @@ class SQLiteMatchRepository(MatchRepository):
                     await self.connection.rollback()
                     return False
                 session = self._session_from_row(session_row)
-                if not session.accepts_tier_activity_at(submission.activity_at):
+                if not await self._is_tier_activity_allowed(
+                    session,
+                    submission.discord_user_id,
+                    submission.activity_at,
+                ):
                     await self.connection.rollback()
                     return False
                 roster = await self._fetchone(
@@ -657,7 +848,11 @@ class SQLiteMatchRepository(MatchRepository):
                     if isinstance(mutation, ReactionMutation):
                         await self._apply_reaction_mutation(mutation)
                     elif isinstance(mutation, TierUpsertMutation):
-                        if session.accepts_tier_activity_at(mutation.activity_at):
+                        if await self._is_tier_activity_allowed(
+                            session,
+                            mutation.discord_user_id,
+                            mutation.activity_at,
+                        ):
                             await self._apply_tier_upsert(mutation)
                     elif isinstance(mutation, TierDeleteMutation):
                         await self.connection.execute(
@@ -743,6 +938,45 @@ class SQLiteMatchRepository(MatchRepository):
                 dedupe_key=f"match:{mutation.match_id}:recruitment-complete",
                 now=mutation.received_at,
             )
+        if (
+            mutation.substitute_recruitment_message_id is not None
+            and mutation.substitute_recruited_user_id is not None
+        ):
+            cursor = await self.connection.execute(
+                """
+                UPDATE substitute_recruitments
+                SET status = ?, recruited_user_id = ?, filled_at_utc = ?
+                WHERE discord_message_id = ? AND match_id = ? AND status = ?
+                """,
+                (
+                    SubstituteRecruitmentStatus.FILLED.value,
+                    mutation.substitute_recruited_user_id,
+                    _to_db(mutation.received_at),
+                    mutation.substitute_recruitment_message_id,
+                    mutation.match_id,
+                    SubstituteRecruitmentStatus.OPEN.value,
+                ),
+            )
+            if cursor.rowcount:
+                await self._insert_notification(
+                    match_id=mutation.match_id,
+                    kind=NotificationKind.SUBSTITUTE_RECRUITED,
+                    channel_id=await self._match_channel(
+                        mutation.match_id,
+                        "announcement_channel_id",
+                    ),
+                    payload={
+                        "user_ids": [mutation.substitute_recruited_user_id],
+                        "substitute_recruitment_message_id": (
+                            mutation.substitute_recruitment_message_id
+                        ),
+                    },
+                    dedupe_key=(
+                        f"match:{mutation.match_id}:substitute-recruited:"
+                        f"{mutation.substitute_recruitment_message_id}"
+                    ),
+                    now=mutation.received_at,
+                )
 
     async def _apply_tier_upsert(self, mutation: TierUpsertMutation) -> None:
         roster = await self._fetchone(
@@ -1281,6 +1515,12 @@ class SQLiteMatchRepository(MatchRepository):
             starts_at=_from_db(row["starts_at_utc"]),  # type: ignore[arg-type]
             tier_deadline_at=_from_db(row["tier_deadline_at_utc"]),  # type: ignore[arg-type]
             lobby_at=_from_db(row["lobby_at_utc"]),  # type: ignore[arg-type]
+            lobby_voice_channel_id=(
+                int(row["lobby_voice_channel_id"])
+                if row["lobby_voice_channel_id"] is not None
+                else None
+            ),
+            lobby_name=str(row["lobby_name"]) if row["lobby_name"] is not None else None,
             full_reached_at=_from_db(row["full_reached_at_utc"]),
             recruitment_completed_notified_at=_from_db(
                 row["recruitment_completed_notified_at_utc"]
@@ -1320,6 +1560,23 @@ class SQLiteMatchRepository(MatchRepository):
             conflict_match_id=str(row["conflict_match_id"])
             if row["conflict_match_id"] is not None
             else None,
+        )
+
+    @staticmethod
+    def _substitute_recruitment_from_row(
+        row: aiosqlite.Row,
+    ) -> SubstituteRecruitment:
+        return SubstituteRecruitment(
+            match_id=str(row["match_id"]),
+            discord_message_id=int(row["discord_message_id"]),
+            status=SubstituteRecruitmentStatus(row["status"]),
+            recruited_user_id=(
+                int(row["recruited_user_id"])
+                if row["recruited_user_id"] is not None
+                else None
+            ),
+            created_at=_from_db(row["created_at_utc"]),  # type: ignore[arg-type]
+            filled_at=_from_db(row["filled_at_utc"]),
         )
 
     @staticmethod

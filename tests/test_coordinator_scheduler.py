@@ -117,6 +117,51 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.repository.get_match(first.id)).status, MatchStatus.RECRUITING)
         self.assertEqual(len(self.coordinator.active_sessions), 2)
 
+    async def test_later_created_match_within_one_hour_uses_second_lobby(
+        self,
+    ) -> None:
+        first_parsed = self.parsed(2)
+        first = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, first_parsed)
+        )
+        await self.coordinator.activate(first, 1001)
+        second_starts_at = first_parsed.starts_at + timedelta(minutes=59)
+        second = await self.coordinator.create_match(
+            CreateMatchRequest(
+                200,
+                101,
+                ParsedMatchCommand(
+                    starts_at=second_starts_at,
+                    tier_deadline_at=second_starts_at - timedelta(minutes=30),
+                    lobby_at=second_starts_at - timedelta(minutes=10),
+                    mode=None,
+                ),
+            )
+        )
+
+        self.assertEqual(first.lobby_voice_channel_id, 105)
+        self.assertEqual(first.lobby_name, "대기실 1번")
+        self.assertEqual(second.lobby_voice_channel_id, 106)
+        self.assertEqual(second.lobby_name, "대기실 2번")
+        stored = await self.repository.get_match(second.id)
+        self.assertEqual(stored.lobby_voice_channel_id, 106)
+        self.assertEqual(stored.lobby_name, "대기실 2번")
+
+    async def test_match_exactly_one_hour_apart_uses_primary_lobby(
+        self,
+    ) -> None:
+        first_parsed = self.parsed(2)
+        first = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, first_parsed)
+        )
+        await self.coordinator.activate(first, 1001)
+        second = await self.coordinator.create_match(
+            CreateMatchRequest(200, 101, self.parsed(3))
+        )
+
+        self.assertEqual(second.lobby_voice_channel_id, 105)
+        self.assertEqual(second.lobby_name, "대기실 1번")
+
     async def test_same_time_identical_matches_have_independent_codes_and_actors(
         self,
     ) -> None:
@@ -481,7 +526,57 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
-    async def test_tier_deadline_missing_reminder_is_created_once(self) -> None:
+    async def test_existing_tier_followup_notification_is_silently_completed(
+        self,
+    ) -> None:
+        opened = self.clock.now() + timedelta(minutes=1)
+        session = make_session(
+            status=MatchStatus.FULL,
+            full_reached_at=opened - timedelta(seconds=1),
+            completion_notified_at=opened,
+        )
+        await self.repository.create_match(session)
+        await self.add_roster_entry(
+            session.id, 1, RosterStatus.CONFIRMED, 1, self.clock.now()
+        )
+        await self.repository.apply_mutations(
+            [
+                TierUpsertMutation(
+                    match_id=session.id,
+                    discord_user_id=1,
+                    discord_display_name="레몬",
+                    raw_tier_message="lemon#32146\n마4 / 마4! / 마4",
+                    discord_message_id=500,
+                    activity_at=opened,
+                    collected_at=opened,
+                )
+            ]
+        )
+        await self.repository.enqueue_tier_complete_if_ready(session.id, opened)
+        self.clock.value = opened
+        transport = MagicMock()
+        transport.send = AsyncMock()
+        worker = NotificationWorker(
+            self.repository,
+            self.coordinator,
+            NotificationRenderer(
+                make_config(),
+                Path(__file__).resolve().parents[1]
+                / "templates"
+                / "recruitment_complete.txt",
+            ),
+            transport,
+            self.clock,
+        )
+
+        processed = await worker.process_once()
+
+        self.assertEqual(processed, 1)
+        transport.send.assert_not_awaited()
+        restored = await self.repository.get_match(session.id)
+        self.assertEqual(restored.tier_complete_notified_at, self.clock.now())
+
+    async def test_scheduler_does_not_create_tier_followup_notifications(self) -> None:
         opened = self.clock.now() + timedelta(minutes=1)
         session = make_session(
             status=MatchStatus.FULL,
@@ -509,18 +604,11 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
             await self.repository.notification_count(
                 session.id, NotificationKind.TIER_MISSING_REMINDER
             ),
-            1,
+            0,
         )
-        notifications = await self.repository.claim_notifications(self.clock.now())
-        reminder = next(
-            item
-            for item in notifications
-            if item.kind is NotificationKind.TIER_MISSING_REMINDER
-        )
-        self.assertEqual(reminder.payload["user_ids"], [1])
-        await self.repository.mark_notification_sent(reminder, 9001, self.clock.now())
-        restored = await self.repository.get_match(session.id)
         self.assertEqual(
-            restored.tier_missing_reminder_notified_at,
-            session.tier_deadline_at,
+            await self.repository.notification_count(
+                session.id, NotificationKind.TIER_COMPLETE
+            ),
+            0,
         )

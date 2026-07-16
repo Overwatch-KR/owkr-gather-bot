@@ -72,6 +72,10 @@ class RuntimeConfigTest(unittest.TestCase):
             runtime.app.defaults.lobby_voice_channel_id,
             123456789012345686,
         )
+        self.assertEqual(
+            runtime.app.defaults.lobby_voice_channel_2_id,
+            123456789012345687,
+        )
 
     def test_lobby_voice_channel_id_is_required(self) -> None:
         config_path = self.root / "config" / "config.yaml"

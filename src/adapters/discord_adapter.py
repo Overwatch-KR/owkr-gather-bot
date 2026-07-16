@@ -177,6 +177,19 @@ def build_recruitment_embed(
     return embed
 
 
+def build_substitute_recruitment_embed(session: MatchSession) -> discord.Embed:
+    return discord.Embed(
+        title="내전 대타 모집",
+        description=(
+            f"**{format_discord_timestamp(session.starts_at, 'F')}** · "
+            f"{format_discord_timestamp(session.starts_at, 'R')}\n\n"
+            "이 메시지에 ✅ 반응하면 해당 내전의 대타 대기열에 등록됩니다.\n"
+            "첫 **1명**이 등록되면 티어 작성 안내를 보내드립니다."
+        ),
+        color=discord.Color.from_rgb(237, 66, 69),
+    )
+
+
 class DiscordNotificationTransport(NotificationTransport):
     def __init__(self, bot: commands.Bot) -> None:
         self._bot = bot
@@ -287,8 +300,8 @@ class RecruitmentCompleteCopyModal(discord.ui.Modal):
         )
         self.add_item(
             discord.ui.Label(
-                text="작성 양식과 예시",
-                description="관리자가 참가자에게 보여 줄 예시만 입력하세요.",
+                text="작성 양식·표시 규칙·예시",
+                description="참가자가 그대로 보고 따라 쓸 짧은 안내를 입력하세요.",
                 component=self.tier_format_example_input,
             )
         )
@@ -395,6 +408,81 @@ class RecruitmentCompleteSettingsView(discord.ui.View):
             logger.debug("failed to delete recruitment copy menu", exc_info=True)
 
 
+class EditMatchModal(discord.ui.Modal, title="내전 시간·모드 수정"):
+    def __init__(self, view: CreateMatchConfirmationView) -> None:
+        super().__init__(timeout=120)
+        self._view = view
+        self.time_input = discord.ui.TextInput(
+            style=discord.TextStyle.short,
+            custom_id="match_time",
+            default=format_korean_time(view.parsed.starts_at),
+            required=True,
+            max_length=30,
+        )
+        self.mode_input = discord.ui.TextInput(
+            style=discord.TextStyle.short,
+            custom_id="match_mode",
+            default=view.parsed.mode or None,
+            required=False,
+            max_length=100,
+        )
+        self.add_item(
+            discord.ui.Label(
+                text="시작 시간",
+                description="예: 오후 8시, 20:00, 23시",
+                component=self.time_input,
+            )
+        )
+        self.add_item(
+            discord.ui.Label(
+                text="모드 (선택)",
+                description="비워 두면 일반 내전으로 표시합니다.",
+                component=self.mode_input,
+            )
+        )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self._view.requester_user_id:
+            await interaction.response.send_message(
+                "이 수정창은 명령을 실행한 관리자만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+        if self._view.finished:
+            await interaction.response.send_message(
+                "이미 처리된 내전 생성 요청입니다.",
+                ephemeral=True,
+            )
+            return
+        arguments = (
+            f"{self.time_input.value} {self.mode_input.value or ''}".strip()
+        )
+        try:
+            parsed = self._view.cog._parser.parse(
+                arguments,
+                now=self._view.cog._clock.now(),
+                default_mode=None,
+            )
+        except PastTimeError:
+            await interaction.response.send_message(
+                "입력한 시각이 이미 지났습니다. 미래 시각으로 다시 입력해 주세요.",
+                ephemeral=True,
+                allowed_mentions=allowed_mentions_for([]),
+            )
+            return
+        except CommandParseError as exc:
+            await interaction.response.send_message(
+                str(exc),
+                ephemeral=True,
+                allowed_mentions=allowed_mentions_for([]),
+            )
+            return
+
+        self._view.update_parsed(parsed)
+        await interaction.response.defer()
+        await self._view.refresh()
+
+
 class CreateMatchConfirmationView(discord.ui.View):
     def __init__(
         self,
@@ -408,6 +496,52 @@ class CreateMatchConfirmationView(discord.ui.View):
         self._requester_user_id = original_interaction.user.id
         self._parsed = parsed
         self._finished = False
+
+    @property
+    def cog(self) -> GatherCog:
+        return self._cog
+
+    @property
+    def requester_user_id(self) -> int:
+        return self._requester_user_id
+
+    @property
+    def parsed(self) -> ParsedMatchCommand:
+        return self._parsed
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    def update_parsed(self, parsed: ParsedMatchCommand) -> None:
+        self._parsed = parsed
+
+    def content(self) -> str:
+        mode = (
+            self._parsed.mode
+            or self._cog._config.defaults.mode_display_fallback
+            or "일반 내전"
+        )
+        _, lobby_name = self._cog._coordinator.lobby_assignment_for(
+            self._parsed.starts_at
+        )
+        return (
+            "**내전 생성 확인**\n\n"
+            f"시작 · {format_discord_timestamp(self._parsed.starts_at, 'F')}\n"
+            f"모드 · {mode}\n"
+            f"티어 마감 · "
+            f"{format_discord_timestamp(self._parsed.tier_deadline_at, 't')}\n"
+            f"대기실 입장 · {format_discord_timestamp(self._parsed.lobby_at, 't')} "
+            f"· {lobby_name}\n\n"
+            "이 내용으로 모집 공지를 만들까요?"
+        )
+
+    async def refresh(self) -> None:
+        await self._original_interaction.edit_original_response(
+            content=self.content(),
+            view=self,
+            allowed_mentions=allowed_mentions_for([]),
+        )
 
     @discord.ui.button(label="생성", style=discord.ButtonStyle.success)
     async def confirm(
@@ -466,6 +600,23 @@ class CreateMatchConfirmationView(discord.ui.View):
             view=None,
             allowed_mentions=allowed_mentions_for([]),
         )
+
+    @discord.ui.button(label="시간·모드 수정", style=discord.ButtonStyle.primary)
+    async def edit(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        if interaction.user.id != self._requester_user_id:
+            await interaction.response.send_message(
+                "이 확인창은 명령을 실행한 관리자만 사용할 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+        if self._finished:
+            await interaction.response.defer()
+            return
+        await interaction.response.send_modal(EditMatchModal(self))
 
     @discord.ui.button(label="취소", style=discord.ButtonStyle.secondary)
     async def cancel(
@@ -527,6 +678,13 @@ class CancelMatchConfirmationView(discord.ui.View):
         self._finished = True
         self.stop()
         await interaction.response.defer()
+        substitute_message_ids = tuple(
+            getattr(
+                self._cog._coordinator,
+                "substitute_message_ids_for_match",
+                lambda match_id: (),
+            )(self._session.id)
+        )
         canceled = await self._cog._coordinator.cancel_match(self._session.id)
         if canceled is None:
             await interaction.edit_original_response(
@@ -537,7 +695,15 @@ class CancelMatchConfirmationView(discord.ui.View):
             return
         announcement_deleted = await self._cog._delete_announcement_message(canceled)
         anchor_deleted = await self._cog._delete_tier_anchor_message(canceled)
-        if announcement_deleted and anchor_deleted:
+        substitutes_deleted = (
+            await self._cog._delete_substitute_recruitment_messages(
+                canceled,
+                substitute_message_ids,
+            )
+            if substitute_message_ids
+            else True
+        )
+        if announcement_deleted and anchor_deleted and substitutes_deleted:
             await self._delete_original_response()
             return
         await interaction.edit_original_response(
@@ -694,17 +860,9 @@ class GatherCog(commands.Cog):
             )
             return
 
-        mode = parsed.mode or self._config.defaults.mode_display_fallback or "일반 내전"
         view = CreateMatchConfirmationView(self, interaction, parsed)
         await interaction.response.send_message(
-            (
-                "**내전 생성 확인**\n\n"
-                f"시작 · {format_discord_timestamp(parsed.starts_at, 'F')}\n"
-                f"모드 · {mode}\n"
-                f"티어 마감 · {format_discord_timestamp(parsed.tier_deadline_at, 't')}\n"
-                f"대기실 입장 · {format_discord_timestamp(parsed.lobby_at, 't')}\n\n"
-                "이 내용으로 모집 공지를 만들까요?"
-            ),
+            view.content(),
             view=view,
             ephemeral=True,
             allowed_mentions=allowed_mentions_for([]),
@@ -903,8 +1061,7 @@ class GatherCog(commands.Cog):
             role_mention = f"<@&{role_id}> " if role_id else ""
             lead = (
                 f"{role_mention}<@{manager_user_id}>님이 여는 "
-                f"**{format_discord_timestamp(session.starts_at, 't')} 내전**! "
-                f"· `{session.match_code}`\n"
+                f"**{format_discord_timestamp(session.starts_at, 't')} 내전**!\n"
                 "참가하려면 아래 ✅을 눌러 주세요."
             )
             message = await channel.send(
@@ -951,7 +1108,8 @@ class GatherCog(commands.Cog):
             return
         if session.recruitment_completed_notified_at is None:
             await interaction.response.send_message(
-                "모집 완료 공지가 전송된 뒤 티어 수집이 시작됩니다.", ephemeral=True
+                "모집 완료 공지가 전송된 뒤 티어 작성 현황을 확인할 수 있습니다.",
+                ephemeral=True,
             )
             return
         await self._writer.flush()
@@ -960,8 +1118,9 @@ class GatherCog(commands.Cog):
         missing = [item.discord_display_name for item in statuses if not item.has_tier]
         content = (
             f"**{self._match_label(session)}**\n"
-            f"티어 작성 완료 {len(completed)}명: {', '.join(completed) or '-'}\n"
-            f"티어 미작성 {len(missing)}명: {', '.join(missing) or '-'}"
+            f"티어 작성 {len(completed)}/{len(statuses)}명\n"
+            f"완료 · {', '.join(completed) or '-'}\n"
+            f"미작성 · {', '.join(missing) or '-'}"
         )
         await interaction.response.send_message(
             content,
@@ -971,72 +1130,6 @@ class GatherCog(commands.Cog):
 
     @tier_status.autocomplete("내전")
     async def tier_status_match_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> list[app_commands.Choice[str]]:
-        return await self._match_autocomplete(interaction, current)
-
-    @app_commands.command(name="티어미작성알림", description="티어 미작성 참가자만 멘션합니다.")
-    @app_commands.guild_only()
-    @management_command_only()
-    @app_commands.describe(내전="내전이 여러 개일 때 선택합니다.")
-    async def remind_missing_tier(
-        self,
-        interaction: discord.Interaction,
-        내전: str | None = None,
-    ) -> None:
-        session = await self._select_active_match(내전, allow_single_default=True)
-        now = self._clock.now()
-        if session is None:
-            content = (
-                "진행 중인 내전이 없습니다."
-                if not self._coordinator.active_sessions
-                else "내전이 여러 개입니다. 알림을 보낼 내전을 선택해 주세요."
-            )
-            await interaction.response.send_message(
-                content,
-                ephemeral=True,
-            )
-            return
-        if session.recruitment_completed_notified_at is None:
-            await interaction.response.send_message(
-                "모집 완료 공지가 전송된 뒤 사용할 수 있습니다.", ephemeral=True
-            )
-            return
-        if now >= session.tier_deadline_at:
-            await interaction.response.send_message(
-                "티어 작성 마감 시각이 지났습니다.", ephemeral=True
-            )
-            return
-        await self._writer.flush()
-        claimed, missing = await self._repository.claim_missing_tier_reminder(
-            session.id, now, cooldown_seconds=300
-        )
-        if not claimed:
-            await interaction.response.send_message(
-                "동일 알림은 5분에 한 번만 보낼 수 있습니다.", ephemeral=True
-            )
-            return
-        if not missing:
-            await interaction.response.send_message(
-                "현재 확정 참가자 전원이 티어를 작성했습니다.", ephemeral=True
-            )
-            return
-        user_ids = [item.discord_user_id for item in missing]
-        mentions = " ".join(f"<@{user_id}>" for user_id in user_ids)
-        await interaction.response.send_message(
-            f"📝 `{session.match_code}` 내전 티어 미작성 참가자입니다.\n{mentions}",
-            allowed_mentions=allowed_mentions_for(user_ids),
-        )
-        logger.info(
-            "missing tier reminder sent match_id=%s recipient_count=%s",
-            session.id,
-            len(user_ids),
-        )
-
-    @remind_missing_tier.autocomplete("내전")
-    async def remind_missing_tier_match_autocomplete(
         self,
         interaction: discord.Interaction,
         current: str,
@@ -1062,7 +1155,8 @@ class GatherCog(commands.Cog):
                 return
             lines = ["**진행 중인 내전**"]
             lines.extend(
-                f"- {self._match_label(session)} · {match_status_label(session.status)}"
+                f"- {self._match_status_time_label(session)} · "
+                f"{match_status_label(session.status)}"
                 for session in sessions[:25]
             )
             await interaction.response.send_message(
@@ -1097,21 +1191,25 @@ class GatherCog(commands.Cog):
                 or entry.conflict_match_id is None
             ):
                 continue
-            conflict = await self._repository.get_match(entry.conflict_match_id)
-            conflict_code = conflict.match_code if conflict is not None else "알 수 없음"
             conflict_lines.append(
-                f"- {entry.discord_display_name}: `{conflict_code}` 내전과 시각 충돌"
+                f"- {entry.discord_display_name}: 같은 시각의 다른 내전과 충돌"
             )
         conflict_content = (
             "\n**동일 시각 충돌 대기자**\n" + "\n".join(conflict_lines)
             if conflict_lines
             else ""
         )
+        tier_content = ""
+        if session.recruitment_completed_notified_at is not None:
+            tier_statuses = await self._repository.get_tier_status(session.id)
+            tier_completed = sum(1 for item in tier_statuses if item.has_tier)
+            tier_content = f"\n티어 작성 · {tier_completed}/{len(tier_statuses)}명"
         await interaction.response.send_message(
-            f"**{self._match_label(session)}**\n"
+            f"**{self._match_status_time_label(session)}**\n"
             f"상태 · {match_status_label(session.status)}\n"
             f"참가 · {confirmed}/{session.participant_limit}명\n"
             f"대기 · {waitlisted}명"
+            f"{tier_content}"
             f"{conflict_content}",
             ephemeral=True,
             allowed_mentions=allowed_mentions_for([]),
@@ -1119,6 +1217,146 @@ class GatherCog(commands.Cog):
 
     @match_status.autocomplete("내전")
     async def match_status_match_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        return await self._match_autocomplete(interaction, current)
+
+    @app_commands.command(
+        name="내전대타",
+        description="선택한 내전에 연결된 1명짜리 대타 모집을 엽니다.",
+    )
+    @app_commands.guild_only()
+    @management_command_only()
+    @app_commands.describe(
+        내전="대타를 모집할 내전을 선택합니다.",
+    )
+    async def open_substitute_recruitment(
+        self,
+        interaction: discord.Interaction,
+        내전: str,
+    ) -> None:
+        session = await self._select_active_match(내전, allow_single_default=False)
+        if session is None:
+            await interaction.response.send_message(
+                "선택한 내전을 찾을 수 없습니다.",
+                ephemeral=True,
+            )
+            return
+        actor = self._coordinator.actor_for_match(session.id)
+        if actor is None or session.full_reached_at is None:
+            await interaction.response.send_message(
+                "모집이 완료된 활성 내전에서만 대타 모집을 열 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+        if session.recruitment_completed_notified_at is None:
+            await interaction.response.send_message(
+                "모집 완료 공지가 전송된 뒤 대타 모집을 열 수 있습니다.",
+                ephemeral=True,
+            )
+            return
+        if actor.current_waitlist():
+            await interaction.response.send_message(
+                "이미 대기자가 있습니다. 기존 대기열을 먼저 확인해 주세요.",
+                ephemeral=True,
+            )
+            return
+        if await self._repository.get_open_substitute_recruitment(session.id):
+            await interaction.response.send_message(
+                "이미 진행 중인 대타 모집이 있습니다.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        message: discord.Message | None = None
+        try:
+            channel = self.bot.get_channel(session.announcement_channel_id)
+            if channel is None:
+                channel = await self.bot.fetch_channel(
+                    session.announcement_channel_id
+                )
+            if not isinstance(channel, discord.abc.Messageable):
+                raise TypeError("announcement channel is not messageable")
+            role_id = self._config.defaults.recruitment_role_id
+            role_mention = f"<@&{role_id}> " if role_id else ""
+            message = await channel.send(
+                content=(
+                    f"{role_mention}**"
+                    f"{format_discord_timestamp(session.starts_at, 't')} "
+                    "내전 대타 1명 모집!**\n"
+                    "참가하려면 아래 ✅을 눌러 주세요."
+                ),
+                embed=build_substitute_recruitment_embed(session),
+                allowed_mentions=allowed_mentions_for(
+                    [],
+                    [role_id] if role_id else [],
+                ),
+            )
+            await self._coordinator.register_substitute_recruitment(
+                match_id=session.id,
+                discord_message_id=message.id,
+            )
+            await message.add_reaction("✅")
+        except ValueError as exc:
+            if message is not None:
+                await self._coordinator.cancel_substitute_recruitment(message.id)
+                try:
+                    await message.delete()
+                except discord.HTTPException:
+                    logger.warning(
+                        "failed to delete rejected substitute recruitment "
+                        "message_id=%s",
+                        message.id,
+                        exc_info=True,
+                    )
+            await interaction.followup.send(
+                str(exc),
+                ephemeral=True,
+                allowed_mentions=allowed_mentions_for([]),
+            )
+            return
+        except Exception:
+            logger.exception(
+                "failed to create substitute recruitment match_id=%s",
+                session.id,
+            )
+            if message is not None:
+                await self._coordinator.cancel_substitute_recruitment(message.id)
+                try:
+                    await message.delete()
+                except discord.HTTPException:
+                    logger.warning(
+                        "failed to delete incomplete substitute recruitment "
+                        "message_id=%s",
+                        message.id,
+                        exc_info=True,
+                    )
+            await interaction.followup.send(
+                "대타 모집을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                ephemeral=True,
+                allowed_mentions=allowed_mentions_for([]),
+            )
+            return
+
+        recruitment_url = discord_message_url(
+            session.guild_id,
+            session.announcement_channel_id,
+            message.id,
+        )
+        await interaction.followup.send(
+            (
+                f"✅ {self._match_status_time_label(session)} 대타 모집을 열었습니다. "
+                f"[모집 공지 보기]({recruitment_url})"
+            ),
+            ephemeral=True,
+            allowed_mentions=allowed_mentions_for([]),
+        )
+
+    @open_substitute_recruitment.autocomplete("내전")
+    async def open_substitute_recruitment_match_autocomplete(
         self,
         interaction: discord.Interaction,
         current: str,
@@ -1217,6 +1455,10 @@ class GatherCog(commands.Cog):
             f"{manager_name} · {mode} · {session.match_code}"
         )
 
+    @staticmethod
+    def _match_status_time_label(session: MatchSession) -> str:
+        return format_korean_time(session.starts_at.astimezone(KST))
+
     async def _delete_announcement_message(self, session: MatchSession) -> bool:
         if session.announcement_message_id is None:
             return True
@@ -1261,6 +1503,40 @@ class GatherCog(commands.Cog):
                 session.id,
                 session.tier_channel_id,
                 session.tier_anchor_message_id,
+                exc_info=True,
+            )
+            return False
+
+    async def _delete_substitute_recruitment_messages(
+        self,
+        session: MatchSession,
+        message_ids: tuple[int, ...],
+    ) -> bool:
+        if not message_ids:
+            return True
+        try:
+            channel = self.bot.get_channel(session.announcement_channel_id)
+            if channel is None:
+                channel = await self.bot.fetch_channel(
+                    session.announcement_channel_id
+                )
+            if not isinstance(channel, discord.abc.Messageable):
+                raise TypeError(
+                    f"channel {session.announcement_channel_id} is not messageable"
+                )
+            for message_id in message_ids:
+                try:
+                    message = await channel.fetch_message(message_id)
+                    await message.delete()
+                except discord.NotFound:
+                    continue
+            return True
+        except (discord.Forbidden, discord.HTTPException, TypeError):
+            logger.warning(
+                "failed to delete substitute recruitment messages "
+                "match_id=%s message_ids=%s",
+                session.id,
+                message_ids,
                 exc_info=True,
             )
             return False
@@ -1314,7 +1590,13 @@ class GatherCog(commands.Cog):
                 actor = self._coordinator.actor_for_announcement(message_id)
                 if actor is None:
                     return
-                should_show_seed = actor.active_user_count() == 0
+                should_show_seed = (
+                    not actor.is_substitute_recruitment_filled(message_id)
+                    if self._coordinator.is_substitute_recruitment_message(
+                        message_id
+                    ) is True
+                    else actor.active_user_count() == 0
+                )
                 channel = self.bot.get_channel(channel_id)
                 if channel is None:
                     channel = await self.bot.fetch_channel(channel_id)
@@ -1506,28 +1788,23 @@ class GatherCog(commands.Cog):
         if result.status is TierRouteStatus.AMBIGUOUS:
             lines = [
                 "어느 내전의 티어인지 자동으로 정할 수 없습니다.",
-                "아래 내전 중 해당하는 **티어 기준 메시지에 답장**해 주세요.",
+                "아래 내전 중 해당하는 **티어 안내 메시지에 답장**해 주세요.",
             ]
             for session in result.candidates:
                 anchor = (
                     f"https://discord.com/channels/{session.guild_id}/"
                     f"{session.tier_channel_id}/{session.tier_anchor_message_id}"
                     if session.tier_anchor_message_id is not None
-                    else "기준 메시지 생성 대기 중"
+                    else "티어 안내 메시지 생성 대기 중"
                 )
                 lines.append(
-                    f"- `{session.match_code}` · "
-                    f"{format_discord_timestamp(session.starts_at, 'F')} · {anchor}"
+                    f"- {format_discord_timestamp(session.starts_at, 'F')} · {anchor}"
                 )
             content = "\n".join(lines)
         elif result.status is TierRouteStatus.NOT_PARTICIPANT:
-            content = (
-                f"`{result.session.match_code}` 내전의 참가자 또는 대기자가 아니어서 "
-                "티어를 저장하지 않았습니다."
-            )
+            content = "해당 내전의 참가자 또는 대기자가 아니어서 티어를 저장하지 않았습니다."
         elif result.status is TierRouteStatus.CLOSED:
-            code = result.session.match_code if result.session else "선택한"
-            content = f"`{code}` 내전은 티어 작성 시간이 마감되어 저장하지 않았습니다."
+            content = "해당 내전은 티어 작성 시간이 마감되어 저장하지 않았습니다."
         elif result.status is TierRouteStatus.BOUND_TO_OTHER_USER:
             content = "이 티어 메시지는 다른 작성자에게 귀속되어 수정할 수 없습니다."
         if content is None:

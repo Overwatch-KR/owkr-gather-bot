@@ -11,15 +11,19 @@ import yaml
 @dataclass(frozen=True, slots=True)
 class RecruitmentCompleteCopy:
     start_heading: str = "내전 시작"
-    tier_heading: str = "티어 작성"
+    tier_heading: str = "👀 티어 작성 방법"
     tier_instruction: str = (
-        "내전별 티어 기준 메시지에 답장으로 아래 형식을 작성해 주세요."
+        "내전별 티어 기준 메시지에 답장으로 작성해 주세요."
     )
     tier_format_example: str = (
-        "배틀태그\n"
-        "탱커 / 딜러 / 힐러\n\n"
-        "lemon#32146\n"
-        "마4 / 마4! / 마4"
+        "**배틀태그 / 탱커 / 딜러 / 힐러**\n"
+        "우람한오크#3390 / 골5? / 실2 / 플3! (모이라 원챔) X\n\n"
+        "`!` 자신 있거나 선호하는 포지션\n"
+        "`?` 자신 없거나 거의 하지 않는 포지션\n"
+        "`X` 마이크·브리핑이 어려우면 맨 끝\n\n"
+        "• 현 시즌 최고 티어를 적되, 현재 티어가 3단계 이상 낮으면 현재 티어로 작성\n"
+        "• 미배치·빠대 유저는 예상 티어로 작성\n"
+        "• 부계정은 하나로 통합하고, 원챔은 영웅 이름 표기"
     )
     extra_notice: str = ""
 
@@ -118,7 +122,7 @@ def build_recruitment_complete_template(copy: RecruitmentCompleteCopy) -> str:
         f"{literal(copy.tier_format_example)}\n\n"
         "**일정**\n"
         "**티어 작성 마감** · {{ tier_deadline }}\n"
-        f"**대기실 입장** · {{{{ lobby_time }}}}"
+        f"**대기실 입장** · {{{{ lobby_time }}}} · {{{{ lobby_name }}}}"
         f"{extra_notice}\n\n"
         "🤝 {{ manner_notice }}\n"
     )

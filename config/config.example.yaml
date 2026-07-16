@@ -21,12 +21,14 @@ defaults:
   past_time_policy: reject
   recruitment_role_id: null
   lobby_voice_channel_id: "123456789012345686"
+  lobby_voice_channel_2_id: "123456789012345687"
   mode_display_fallback: null
   lobby_name: "대기실 1번"
+  lobby_2_name: "대기실 2번"
 
 messages:
   participation_notice: "이 메시지에 ✅ 반응하면 참가 신청됩니다."
-  tier_notice: "모집 완료 후 내전 티어 채널에 생성되는 내전별 기준 메시지에 답장해 주세요."
+  tier_notice: "모집 완료 후 내전 티어 채널의 해당 내전 안내 메시지에 답장해 주세요."
   manner_notice: >-
     내전은 승패보다 모두가 즐겁게 플레이하는 것을 목적으로 합니다.
     악의적인 들락날락, 노쇼, 욕설, 비하, 과도한 정치, 고의적인 던지기,

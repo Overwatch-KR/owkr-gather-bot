@@ -40,7 +40,10 @@ def make_config() -> AppConfig:
         channels=ChannelConfig(command=101, announcement=102, tier=103, admin=104),
         admin_user_ids=frozenset({200}),
         admin_role_ids=frozenset(),
-        defaults=DefaultConfig(lobby_voice_channel_id=105),
+        defaults=DefaultConfig(
+            lobby_voice_channel_id=105,
+            lobby_voice_channel_2_id=106,
+        ),
         messages=MessageConfig(
             participation_notice="✅ 반응",
             tier_notice="티어 작성",
@@ -77,6 +80,8 @@ def make_session(
         starts_at=starts_at,
         tier_deadline_at=starts_at - timedelta(minutes=30),
         lobby_at=starts_at - timedelta(minutes=10),
+        lobby_voice_channel_id=105,
+        lobby_name="대기실 1번",
         full_reached_at=full_reached_at,
         recruitment_completed_notified_at=completion_notified_at,
         created_at=now,

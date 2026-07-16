@@ -105,10 +105,37 @@ class RenderingTest(unittest.TestCase):
         completion = NotificationRenderer(
             config, RECRUITMENT_COMPLETE_TEMPLATE
         ).render(notification, session).content
+        self.assertNotIn("내전 코드", completion)
+        self.assertNotIn(session.match_code, completion)
         self.assertIn(f"<t:{starts_at}:F>", completion)
         self.assertIn(f"<t:{starts_at}:R>", completion)
         self.assertIn(f"**티어 작성 마감** · <t:{tier_deadline_at}:t>", completion)
         self.assertIn(f"**대기실 입장** · <t:{lobby_at}:t>", completion)
+        self.assertIn("대기실 1번", completion)
+
+    def test_lobby_reminder_uses_session_lobby_assignment(self) -> None:
+        session = make_session()
+        session.lobby_voice_channel_id = 106
+        session.lobby_name = "대기실 2번"
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.LOBBY_REMINDER,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": [1, 2]},
+            dedupe_key="lobby-two",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.lobby_at,
+        )
+
+        rendered = NotificationRenderer(
+            make_config(), RECRUITMENT_COMPLETE_TEMPLATE
+        ).render(notification, session)
+
+        self.assertEqual(rendered.voice_channel_id, 106)
+        self.assertIn("대기실 2번", rendered.content)
+        self.assertNotIn(session.match_code, rendered.content)
 
     def test_tier_missing_reminder_mentions_only_payload_users(self) -> None:
         session = make_session()
@@ -130,7 +157,40 @@ class RenderingTest(unittest.TestCase):
 
         self.assertEqual(rendered.allowed_user_ids, (1, 2))
         self.assertIn("<@1> <@2>", rendered.content)
+        self.assertIn(
+            f"<#{session.tier_channel_id}>에 티어 작성이 완료되지 않았습니다. "
+            "한번 더 체크 부탁드립니다.",
+            rendered.content,
+        )
+        self.assertNotIn("관리자 안내에 따라", rendered.content)
+
+    def test_substitute_notice_mentions_only_selected_user(self) -> None:
+        session = make_session()
+        notification = NotificationRecord(
+            id=1,
+            match_id=session.id,
+            kind=NotificationKind.SUBSTITUTE_RECRUITED,
+            channel_id=session.announcement_channel_id,
+            payload={"user_ids": [20]},
+            dedupe_key="substitute",
+            status=NotificationStatus.PENDING,
+            attempts=0,
+            next_attempt_at=session.created_at,
+        )
+
+        rendered = NotificationRenderer(
+            make_config(),
+            RECRUITMENT_COMPLETE_TEMPLATE,
+        ).render(notification, session)
+
+        self.assertEqual(rendered.allowed_user_ids, (20,))
+        self.assertIn("<@20>", rendered.content)
+        self.assertIn("대타 대기열에 등록되었습니다", rendered.content)
         self.assertIn(f"<#{session.tier_channel_id}>", rendered.content)
+        self.assertIn("답장으로 티어를 작성해 주세요", rendered.content)
+        allowed = allowed_mentions_for(rendered.allowed_user_ids).to_dict()
+        self.assertNotIn("everyone", allowed.get("parse", []))
+        self.assertNotIn("roles", allowed.get("parse", []))
 
     def test_lobby_reminder_can_be_rebuilt_for_missing_users_only(self) -> None:
         session = make_session()
@@ -157,7 +217,7 @@ class RenderingTest(unittest.TestCase):
         self.assertIn("<@2> <@3>", filtered.content)
         self.assertIn("대기실 1번", filtered.content)
 
-    def test_tier_anchor_identifies_match_and_requires_reply(self) -> None:
+    def test_tier_announcement_omits_public_match_code(self) -> None:
         session = make_session()
         notification = NotificationRecord(
             id=1,
@@ -175,8 +235,16 @@ class RenderingTest(unittest.TestCase):
             make_config(), RECRUITMENT_COMPLETE_TEMPLATE
         ).render(notification, session)
 
-        self.assertIn("`A7K2`", rendered.content)
+        self.assertNotIn("`A7K2`", rendered.content)
+        self.assertNotIn("내전 코드", rendered.content)
         self.assertIn("이 메시지에 답장", rendered.content)
+        self.assertIn("**배틀태그 / 탱커 / 딜러 / 힐러**", rendered.content)
+        self.assertIn("골5? / 실2 / 플3!", rendered.content)
+        self.assertIn("`!` 자신 있거나 선호하는 포지션", rendered.content)
+        self.assertIn("`?` 자신 없거나 거의 하지 않는 포지션", rendered.content)
+        self.assertIn("`X` 마이크·브리핑이 어려우면 맨 끝", rendered.content)
+        self.assertIn("현재 티어가 3단계 이상 낮으면", rendered.content)
+        self.assertIn("부계정은 하나로 통합", rendered.content)
         self.assertIn(f"<@{session.manager_user_id}>", rendered.content)
         self.assertEqual(rendered.allowed_user_ids, ())
         allowed = allowed_mentions_for(rendered.allowed_user_ids).to_dict()
@@ -233,7 +301,7 @@ class RenderingTest(unittest.TestCase):
             template.write_text("수정 문구 {{ tier_channel }}", encoding="utf-8")
             second = renderer.render(notification, session)
 
-        self.assertEqual(first.content, "**내전 코드** · `A7K2`\n\n첫 문구")
+        self.assertEqual(first.content, "첫 문구")
         self.assertIn(f"수정 문구 <#{session.tier_channel_id}>", second.content)
 
     def test_recruitment_complete_preview_uses_sample_schedule(self) -> None:

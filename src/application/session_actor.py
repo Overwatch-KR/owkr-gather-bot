@@ -50,6 +50,7 @@ class SessionActor:
         self._queue: asyncio.Queue[ReactionEvent | _Stop] = asyncio.Queue(maxsize=2000)
         self._task: asyncio.Task[None] | None = None
         self._accepting = True
+        self._substitute_recruitments: dict[int, int | None] = {}
 
     def start(self) -> None:
         if self._task is None:
@@ -105,6 +106,19 @@ class SessionActor:
     def active_user_count(self) -> int:
         return sum(1 for entry in self._entries.values() if entry.is_active)
 
+    def register_substitute_recruitment(
+        self,
+        discord_message_id: int,
+        recruited_user_id: int | None = None,
+    ) -> None:
+        self._substitute_recruitments[discord_message_id] = recruited_user_id
+
+    def unregister_substitute_recruitment(self, discord_message_id: int) -> None:
+        self._substitute_recruitments.pop(discord_message_id, None)
+
+    def is_substitute_recruitment_filled(self, discord_message_id: int) -> bool:
+        return self._substitute_recruitments.get(discord_message_id) is not None
+
     def display_name_for(self, user_id: int) -> str | None:
         entry = self._entries.get(user_id)
         return entry.discord_display_name if entry else None
@@ -137,6 +151,30 @@ class SessionActor:
     async def _process(self, event: ReactionEvent) -> None:
         if event.received_at >= self.session.starts_at:
             return
+
+        substitute_message_id = event.substitute_recruitment_message_id
+        if substitute_message_id is not None:
+            if (
+                self.session.full_reached_at is None
+                or substitute_message_id not in self._substitute_recruitments
+            ):
+                return
+            recruited_user_id = self._substitute_recruitments[
+                substitute_message_id
+            ]
+            if recruited_user_id is not None:
+                if (
+                    event.action is ReactionAction.ADD
+                    or event.discord_user_id != recruited_user_id
+                ):
+                    return
+            else:
+                current = self._entries.get(event.discord_user_id)
+                if (
+                    event.action is ReactionAction.REMOVE
+                    or (current is not None and current.is_active)
+                ):
+                    return
 
         arrival_seq = self.session.next_arrival_seq
         self.session.next_arrival_seq += 1
@@ -218,6 +256,18 @@ class SessionActor:
                 self._entries[event.discord_user_id] = roster_entry
                 outcome = "WITHDRAWN"
 
+        substitute_recruited_user_id: int | None = None
+        if (
+            substitute_message_id is not None
+            and event.action is ReactionAction.ADD
+            and roster_entry is not None
+            and roster_entry.status is RosterStatus.WAITLISTED
+        ):
+            self._substitute_recruitments[substitute_message_id] = (
+                event.discord_user_id
+            )
+            substitute_recruited_user_id = event.discord_user_id
+
         self.session.updated_at = event.received_at
         mutation = ReactionMutation(
             match_id=self.session.id,
@@ -231,6 +281,12 @@ class SessionActor:
             roster_entry=roster_entry,
             full_reached_at=self.session.full_reached_at,
             completion_user_ids=completion_user_ids,
+            substitute_recruitment_message_id=(
+                substitute_message_id
+                if substitute_recruited_user_id is not None
+                else None
+            ),
+            substitute_recruited_user_id=substitute_recruited_user_id,
         )
         self._writer.submit(mutation)
         logger.debug(

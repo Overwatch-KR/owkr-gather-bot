@@ -16,8 +16,8 @@ EXPECTED_SLASH_COMMANDS = frozenset(
     {
         "내전",
         "티어현황",
-        "티어미작성알림",
         "내전상태",
+        "내전대타",
         "내전취소",
         "공지문구",
     }
@@ -60,6 +60,7 @@ CHANNEL_PERMISSION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "send_messages",
     ),
     "대기실 음성 채널": ("view_channel",),
+    "대기실 2 음성 채널": ("view_channel",),
 }
 
 
@@ -215,7 +216,7 @@ class E2EPreflightClient(discord.Client):
         if member is None:
             member = await guild.fetch_member(self.user.id)
 
-        channel_specs = (
+        channel_specs = [
             ("명령 채널", self._config.channels.command, discord.TextChannel),
             ("모집 공지 채널", self._config.channels.announcement, discord.TextChannel),
             ("티어 채널", self._config.channels.tier, discord.TextChannel),
@@ -225,7 +226,15 @@ class E2EPreflightClient(discord.Client):
                 self._config.defaults.lobby_voice_channel_id,
                 (discord.VoiceChannel, discord.StageChannel),
             ),
-        )
+        ]
+        if self._config.defaults.lobby_voice_channel_2_id is not None:
+            channel_specs.append(
+                (
+                    "대기실 2 음성 채널",
+                    self._config.defaults.lobby_voice_channel_2_id,
+                    (discord.VoiceChannel, discord.StageChannel),
+                )
+            )
         for label, channel_id, expected_type in channel_specs:
             channel = channels.get(channel_id)
             if channel is None:

@@ -206,6 +206,128 @@ class SQLiteRepositoryTest(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
+    async def test_substitute_recruitment_fills_once_and_enqueues_notice(
+        self,
+    ) -> None:
+        session = make_session(
+            status=MatchStatus.FULL,
+            completion_notified_at=make_session().created_at,
+            full_reached_at=make_session().created_at,
+        )
+        await self.repository.create_match(session)
+        await self.repository.create_substitute_recruitment(
+            session.id,
+            2500,
+            session.created_at,
+        )
+        selected_at = session.created_at + timedelta(seconds=1)
+        mutation = ReactionMutation(
+            match_id=session.id,
+            discord_user_id=20,
+            action=ReactionAction.ADD,
+            received_at=selected_at,
+            arrival_seq=1,
+            outcome=RosterStatus.WAITLISTED.value,
+            next_arrival_seq=2,
+            match_status=MatchStatus.FULL,
+            roster_entry=RosterEntry(
+                match_id=session.id,
+                discord_user_id=20,
+                discord_display_name="대타",
+                reaction_order=1,
+                status=RosterStatus.WAITLISTED,
+                reacted_at=selected_at,
+            ),
+            full_reached_at=session.full_reached_at,
+            substitute_recruitment_message_id=2500,
+            substitute_recruited_user_id=20,
+        )
+
+        await self.repository.apply_mutations([mutation, mutation])
+
+        roster = await self.repository.load_roster(session.id)
+        self.assertEqual(roster[0].status, RosterStatus.WAITLISTED)
+        recruitments = await self.repository.get_active_substitute_recruitments(
+            session.guild_id
+        )
+        self.assertEqual(recruitments[0].recruited_user_id, 20)
+        self.assertEqual(
+            await self.repository.notification_count(
+                session.id,
+                NotificationKind.SUBSTITUTE_RECRUITED,
+            ),
+            1,
+        )
+
+    async def test_selected_substitute_can_write_tier_after_normal_deadline(
+        self,
+    ) -> None:
+        session = make_session(
+            status=MatchStatus.FULL,
+            completion_notified_at=make_session().created_at,
+            full_reached_at=make_session().created_at,
+        )
+        await self.repository.create_match(session)
+        selected_at = session.tier_deadline_at + timedelta(seconds=1)
+        await self.repository.create_substitute_recruitment(
+            session.id,
+            2600,
+            selected_at,
+        )
+        await self.repository.apply_mutations(
+            [
+                ReactionMutation(
+                    match_id=session.id,
+                    discord_user_id=20,
+                    action=ReactionAction.ADD,
+                    received_at=selected_at,
+                    arrival_seq=1,
+                    outcome=RosterStatus.WAITLISTED.value,
+                    next_arrival_seq=2,
+                    match_status=MatchStatus.FULL,
+                    roster_entry=RosterEntry(
+                        match_id=session.id,
+                        discord_user_id=20,
+                        discord_display_name="대타",
+                        reaction_order=1,
+                        status=RosterStatus.WAITLISTED,
+                        reacted_at=selected_at,
+                    ),
+                    full_reached_at=session.full_reached_at,
+                    substitute_recruitment_message_id=2600,
+                    substitute_recruited_user_id=20,
+                )
+            ]
+        )
+
+        self.assertTrue(
+            await self.repository.is_tier_activity_allowed(
+                session.id,
+                20,
+                selected_at,
+            )
+        )
+        self.assertFalse(
+            await self.repository.is_tier_activity_allowed(
+                session.id,
+                99,
+                selected_at,
+            )
+        )
+        self.assertFalse(
+            await self.repository.is_tier_activity_allowed(
+                session.id,
+                20,
+                session.starts_at,
+            )
+        )
+        candidates = await self.repository.get_tier_candidates(
+            session.guild_id,
+            20,
+            selected_at,
+        )
+        self.assertEqual([candidate.id for candidate in candidates], [session.id])
+
     async def test_successful_completion_send_opens_tier_collection(self) -> None:
         session = make_session()
         await self.repository.create_match(session)

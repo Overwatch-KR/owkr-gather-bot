@@ -10,6 +10,7 @@ from src.domain.models import (
     NotificationRecord,
     PersistenceMutation,
     RosterEntry,
+    SubstituteRecruitment,
     TierMessageBinding,
     TierParticipantStatus,
     TierSubmission,
@@ -65,12 +66,47 @@ class MatchRepository(ABC):
     async def load_roster(self, match_id: str) -> list[RosterEntry]: ...
 
     @abstractmethod
+    async def create_substitute_recruitment(
+        self,
+        match_id: str,
+        discord_message_id: int,
+        now: datetime,
+    ) -> SubstituteRecruitment: ...
+
+    @abstractmethod
+    async def cancel_substitute_recruitment(
+        self,
+        discord_message_id: int,
+        now: datetime,
+    ) -> None: ...
+
+    @abstractmethod
+    async def get_active_substitute_recruitments(
+        self,
+        guild_id: int,
+    ) -> list[SubstituteRecruitment]: ...
+
+    @abstractmethod
+    async def get_open_substitute_recruitment(
+        self,
+        match_id: str,
+    ) -> SubstituteRecruitment | None: ...
+
+    @abstractmethod
     async def get_tier_candidates(
         self,
         guild_id: int,
         discord_user_id: int,
         activity_at: datetime,
     ) -> list[MatchSession]: ...
+
+    @abstractmethod
+    async def is_tier_activity_allowed(
+        self,
+        match_id: str,
+        discord_user_id: int,
+        activity_at: datetime,
+    ) -> bool: ...
 
     @abstractmethod
     async def get_tier_binding(

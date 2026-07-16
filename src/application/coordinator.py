@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from src.config import AppConfig
@@ -15,6 +15,7 @@ from src.domain.models import (
     NotificationKind,
     ReactionAction,
     ReactionEvent,
+    SubstituteRecruitment,
 )
 from src.infrastructure.persistence_writer import PersistenceWriter
 from src.parsing.match_command import ParsedMatchCommand
@@ -56,6 +57,7 @@ class SessionCoordinator:
         self._actors: dict[str, SessionActor] = {}
         self._created_sessions: dict[str, MatchSession] = {}
         self._announcement_match_ids: dict[int, str] = {}
+        self._substitute_match_ids: dict[int, str] = {}
         self._tier_anchor_match_ids: dict[int, str] = {}
         self._confirmed_slots: dict[tuple[int, datetime], str] = {}
         self._lifecycle_lock = asyncio.Lock()
@@ -86,12 +88,40 @@ class SessionCoordinator:
     def actor_for_match(self, match_id: str) -> SessionActor | None:
         return self._actors.get(match_id)
 
+    def lobby_assignment_for(self, starts_at: datetime) -> tuple[int, str]:
+        starts_at_utc = starts_at.astimezone(timezone.utc)
+        overlaps = any(
+            abs(session.starts_at - starts_at_utc) < timedelta(hours=1)
+            for session in self.active_sessions
+        )
+        defaults = self._config.defaults
+        if overlaps and defaults.lobby_voice_channel_2_id is not None:
+            return (
+                defaults.lobby_voice_channel_2_id,
+                defaults.lobby_2_name,
+            )
+        if defaults.lobby_voice_channel_id is None:
+            raise RuntimeError("primary lobby voice channel is not configured")
+        return defaults.lobby_voice_channel_id, defaults.lobby_name
+
     def actor_for_announcement(
         self,
         announcement_message_id: int,
     ) -> SessionActor | None:
         match_id = self._announcement_match_ids.get(announcement_message_id)
+        if match_id is None:
+            match_id = self._substitute_match_ids.get(announcement_message_id)
         return self._actors.get(match_id) if match_id is not None else None
+
+    def is_substitute_recruitment_message(self, discord_message_id: int) -> bool:
+        return discord_message_id in self._substitute_match_ids
+
+    def substitute_message_ids_for_match(self, match_id: str) -> tuple[int, ...]:
+        return tuple(
+            message_id
+            for message_id, routed_match_id in self._substitute_match_ids.items()
+            if routed_match_id == match_id
+        )
 
     def session_for_tier_anchor(
         self,
@@ -136,6 +166,22 @@ class SessionCoordinator:
                     )
             actor.start()
             restored += 1
+        substitute_recruitments = (
+            await self._repository.get_active_substitute_recruitments(
+                self._config.guild_id
+            )
+        )
+        for recruitment in substitute_recruitments:
+            actor = self._actors.get(recruitment.match_id)
+            if actor is None:
+                continue
+            self._substitute_match_ids[
+                recruitment.discord_message_id
+            ] = recruitment.match_id
+            actor.register_substitute_recruitment(
+                recruitment.discord_message_id,
+                recruitment.recruited_user_id,
+            )
         logger.info(
             "active session recovery completed guild_id=%s session_count=%s",
             self._config.guild_id,
@@ -154,6 +200,9 @@ class SessionCoordinator:
 
             match_code = await self._new_match_code()
             now = self._clock.now()
+            lobby_voice_channel_id, lobby_name = self.lobby_assignment_for(
+                request.parsed.starts_at
+            )
             session = MatchSession(
                 id=str(uuid4()),
                 match_code=match_code,
@@ -169,6 +218,8 @@ class SessionCoordinator:
                 starts_at=request.parsed.starts_at.astimezone(timezone.utc),
                 tier_deadline_at=request.parsed.tier_deadline_at.astimezone(timezone.utc),
                 lobby_at=request.parsed.lobby_at.astimezone(timezone.utc),
+                lobby_voice_channel_id=lobby_voice_channel_id,
+                lobby_name=lobby_name,
                 source_request_id=request.source_request_id,
                 source_request_type=request.source_request_type,
                 created_at=now,
@@ -246,6 +297,59 @@ class SessionCoordinator:
             )
             return session
 
+    async def register_substitute_recruitment(
+        self,
+        *,
+        match_id: str,
+        discord_message_id: int,
+    ) -> SubstituteRecruitment:
+        async with self._lifecycle_lock:
+            actor = self._actors.get(match_id)
+            if actor is None or actor.session.full_reached_at is None:
+                raise ValueError("모집이 완료된 활성 내전을 찾을 수 없습니다.")
+            if actor.session.recruitment_completed_notified_at is None:
+                raise ValueError(
+                    "모집 완료 공지가 전송된 뒤 대타 모집을 열 수 있습니다."
+                )
+            await actor.drain()
+            if actor.current_waitlist():
+                raise ValueError(
+                    "이미 대기자가 있습니다. 기존 대기열을 먼저 확인해 주세요."
+                )
+            existing = await self._repository.get_open_substitute_recruitment(
+                match_id
+            )
+            if existing is not None:
+                raise ValueError("이미 진행 중인 대타 모집이 있습니다.")
+            recruitment = await self._repository.create_substitute_recruitment(
+                match_id,
+                discord_message_id,
+                self._clock.now(),
+            )
+            self._substitute_match_ids[discord_message_id] = match_id
+            actor.register_substitute_recruitment(discord_message_id)
+            return recruitment
+
+    async def cancel_substitute_recruitment(
+        self,
+        discord_message_id: int,
+    ) -> None:
+        async with self._lifecycle_lock:
+            match_id = self._substitute_match_ids.pop(
+                discord_message_id,
+                None,
+            )
+            if match_id is not None:
+                actor = self._actors.get(match_id)
+                if actor is not None:
+                    actor.unregister_substitute_recruitment(
+                        discord_message_id
+                    )
+            await self._repository.cancel_substitute_recruitment(
+                discord_message_id,
+                self._clock.now(),
+            )
+
     async def start_match(self, match_id: str) -> MatchSession | None:
         async with self._lifecycle_lock:
             session = self._session_by_id(match_id)
@@ -291,6 +395,13 @@ class SessionCoordinator:
                 discord_display_name=discord_display_name,
                 action=action,
                 received_at=received_at,
+                substitute_recruitment_message_id=(
+                    announcement_message_id
+                    if self.is_substitute_recruitment_message(
+                        announcement_message_id
+                    )
+                    else None
+                ),
             )
         )
 
@@ -324,6 +435,7 @@ class SessionCoordinator:
             self._actors.clear()
             self._created_sessions.clear()
             self._announcement_match_ids.clear()
+            self._substitute_match_ids.clear()
             self._tier_anchor_match_ids.clear()
             for actor in actors:
                 await actor.stop(discard=False)
@@ -354,6 +466,8 @@ class SessionCoordinator:
             self._announcement_match_ids.pop(session.announcement_message_id, None)
         if session.tier_anchor_message_id is not None:
             self._tier_anchor_match_ids.pop(session.tier_anchor_message_id, None)
+        for message_id in self.substitute_message_ids_for_match(session.id):
+            self._substitute_match_ids.pop(message_id, None)
 
     async def _reserve_confirmation(
         self,

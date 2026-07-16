@@ -32,6 +32,7 @@ class ReactionAction(StrEnum):
 
 class NotificationKind(StrEnum):
     RECRUITMENT_COMPLETE = "RECRUITMENT_COMPLETE"
+    SUBSTITUTE_RECRUITED = "SUBSTITUTE_RECRUITED"
     TIER_ANCHOR = "TIER_ANCHOR"
     TIER_ANCHOR_RECREATED = "TIER_ANCHOR_RECREATED"
     TIER_MISSING_REMINDER = "TIER_MISSING_REMINDER"
@@ -44,6 +45,12 @@ class NotificationStatus(StrEnum):
     SENDING = "SENDING"
     SENT = "SENT"
     FAILED = "FAILED"
+    CANCELED = "CANCELED"
+
+
+class SubstituteRecruitmentStatus(StrEnum):
+    OPEN = "OPEN"
+    FILLED = "FILLED"
     CANCELED = "CANCELED"
 
 
@@ -67,6 +74,8 @@ class MatchSession:
     updated_at: datetime
     source_request_id: str | None = None
     source_request_type: str | None = None
+    lobby_voice_channel_id: int | None = None
+    lobby_name: str | None = None
     announcement_message_id: int | None = None
     tier_anchor_message_id: int | None = None
     full_reached_at: datetime | None = None
@@ -114,12 +123,23 @@ class RosterEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class SubstituteRecruitment:
+    match_id: str
+    discord_message_id: int
+    status: SubstituteRecruitmentStatus
+    created_at: datetime
+    recruited_user_id: int | None = None
+    filled_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ReactionEvent:
     match_id: str
     discord_user_id: int
     discord_display_name: str
     action: ReactionAction
     received_at: datetime
+    substitute_recruitment_message_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +155,8 @@ class ReactionMutation:
     roster_entry: RosterEntry | None = None
     full_reached_at: datetime | None = None
     completion_user_ids: tuple[int, ...] = ()
+    substitute_recruitment_message_id: int | None = None
+    substitute_recruited_user_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

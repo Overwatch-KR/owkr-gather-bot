@@ -62,6 +62,11 @@ class RecruitmentCompleteEditorTest(unittest.TestCase):
 
         self.assertEqual(loaded.start_heading, "내전 시작")
         self.assertIn("배틀태그", loaded.tier_format_example)
+        self.assertIn("골5?", loaded.tier_format_example)
+        self.assertIn("플3!", loaded.tier_format_example)
+        self.assertIn("맨 끝", loaded.tier_format_example)
+        self.assertIn("3단계 이상", loaded.tier_format_example)
+        self.assertIn("원챔", loaded.tier_format_example)
         self.assertNotIn("{{", loaded.tier_format_example)
 
 

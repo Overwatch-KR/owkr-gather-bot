@@ -75,7 +75,11 @@ class TierCollector:
                     TierRouteStatus.BOUND_TO_OTHER_USER,
                     session,
                 )
-            if not session.accepts_tier_activity_at(activity_at):
+            if not await self._repository.is_tier_activity_allowed(
+                session.id,
+                discord_user_id,
+                activity_at,
+            ):
                 return TierRouteResult(TierRouteStatus.CLOSED, session)
             accepted = await self._repository.upsert_tier_message(
                 binding,
@@ -104,7 +108,11 @@ class TierCollector:
                 or channel_id != session.tier_channel_id
             ):
                 return TierRouteResult(TierRouteStatus.IGNORED)
-            if not session.accepts_tier_activity_at(activity_at):
+            if not await self._repository.is_tier_activity_allowed(
+                session.id,
+                discord_user_id,
+                activity_at,
+            ):
                 return TierRouteResult(TierRouteStatus.CLOSED, session)
             roster = await self._repository.load_roster(session.id)
             if not any(

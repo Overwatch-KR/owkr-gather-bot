@@ -20,13 +20,21 @@ class SessionActorTest(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.actor.stop(discard=True)
 
-    def event(self, user_id: int, action: ReactionAction, offset_ms: int = 0) -> ReactionEvent:
+    def event(
+        self,
+        user_id: int,
+        action: ReactionAction,
+        offset_ms: int = 0,
+        *,
+        substitute_message_id: int | None = None,
+    ) -> ReactionEvent:
         return ReactionEvent(
             match_id=self.session.id,
             discord_user_id=user_id,
             discord_display_name=f"user-{user_id}",
             action=action,
             received_at=self.session.created_at + timedelta(milliseconds=offset_ms),
+            substitute_recruitment_message_id=substitute_message_id,
         )
 
     async def test_eighteen_concurrent_adds_are_split_without_loss(self) -> None:
@@ -96,6 +104,62 @@ class SessionActorTest(unittest.IsolatedAsyncioTestCase):
         await self.actor.drain()
         self.assertEqual(self.actor.current_waitlist()[0].discord_user_id, 1)
         self.assertEqual(self.actor.current_waitlist()[0].reaction_order, 12)
+
+    async def test_first_substitute_reaction_is_waitlisted_and_selected(
+        self,
+    ) -> None:
+        for user_id in range(1, 11):
+            self.actor.ingest(self.event(user_id, ReactionAction.ADD, user_id))
+        await self.actor.drain()
+        self.actor.register_substitute_recruitment(2000)
+
+        self.actor.ingest(
+            self.event(
+                20,
+                ReactionAction.ADD,
+                20,
+                substitute_message_id=2000,
+            )
+        )
+        self.actor.ingest(
+            self.event(
+                21,
+                ReactionAction.ADD,
+                21,
+                substitute_message_id=2000,
+            )
+        )
+        await self.actor.drain()
+
+        self.assertTrue(self.actor.is_substitute_recruitment_filled(2000))
+        self.assertEqual(
+            [entry.discord_user_id for entry in self.actor.current_waitlist()],
+            [20],
+        )
+        mutation = self.writer.mutations[-1]
+        self.assertEqual(mutation.substitute_recruitment_message_id, 2000)
+        self.assertEqual(mutation.substitute_recruited_user_id, 20)
+
+    async def test_confirmed_user_does_not_fill_substitute_recruitment(
+        self,
+    ) -> None:
+        for user_id in range(1, 11):
+            self.actor.ingest(self.event(user_id, ReactionAction.ADD, user_id))
+        await self.actor.drain()
+        self.actor.register_substitute_recruitment(2000)
+
+        self.actor.ingest(
+            self.event(
+                1,
+                ReactionAction.ADD,
+                20,
+                substitute_message_id=2000,
+            )
+        )
+        await self.actor.drain()
+
+        self.assertFalse(self.actor.is_substitute_recruitment_filled(2000))
+        self.assertEqual(self.actor.current_waitlist(), [])
 
     async def test_events_at_or_after_start_are_ignored(self) -> None:
         event = ReactionEvent(
