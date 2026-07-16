@@ -132,6 +132,43 @@ class SQLiteRepositoryTest(unittest.IsolatedAsyncioTestCase):
         submission = await self.repository.get_tier_submission(session.id, 1)
         self.assertEqual(submission.raw_tier_message, "rewritten")
 
+    async def test_equal_activity_uses_larger_message_id_as_tie_break(self) -> None:
+        opened = make_session().created_at + timedelta(minutes=5)
+        session = make_session(
+            status=MatchStatus.FULL,
+            completion_notified_at=opened,
+            full_reached_at=opened - timedelta(minutes=1),
+        )
+        await self.repository.create_replacing_active(session)
+        await self.add_roster_entry(session.id, 1, RosterStatus.CONFIRMED, 1, session.created_at)
+
+        await self.repository.apply_mutations(
+            [
+                TierUpsertMutation(
+                    match_id=session.id,
+                    discord_user_id=1,
+                    discord_display_name="레몬",
+                    raw_tier_message="lower id",
+                    discord_message_id=600,
+                    activity_at=opened,
+                    collected_at=opened,
+                ),
+                TierUpsertMutation(
+                    match_id=session.id,
+                    discord_user_id=1,
+                    discord_display_name="레몬",
+                    raw_tier_message="higher id",
+                    discord_message_id=601,
+                    activity_at=opened,
+                    collected_at=opened,
+                ),
+            ]
+        )
+
+        submission = await self.repository.get_tier_submission(session.id, 1)
+        self.assertEqual(submission.raw_tier_message, "higher id")
+        self.assertEqual(submission.discord_message_id, 601)
+
     async def test_completion_notification_is_created_once(self) -> None:
         session = make_session()
         await self.repository.create_replacing_active(session)
@@ -252,6 +289,60 @@ class SQLiteRepositoryTest(unittest.IsolatedAsyncioTestCase):
             {"discordUserId", "discordDisplayName", "rawTierMessage", "reactionOrder"},
         )
 
+    async def test_web_export_excludes_withdrawn_and_missing_tier_users(self) -> None:
+        opened = make_session().created_at + timedelta(minutes=5)
+        session = make_session(
+            status=MatchStatus.FULL,
+            completion_notified_at=opened,
+            full_reached_at=opened - timedelta(minutes=1),
+        )
+        await self.repository.create_replacing_active(session)
+        for user_id in (1, 2, 3):
+            await self.add_roster_entry(
+                session.id, user_id, RosterStatus.CONFIRMED, user_id, session.created_at
+            )
+        for user_id in (1, 2):
+            await self.repository.apply_mutations(
+                [
+                    TierUpsertMutation(
+                        match_id=session.id,
+                        discord_user_id=user_id,
+                        discord_display_name=f"user-{user_id}",
+                        raw_tier_message=f"tier-{user_id}",
+                        discord_message_id=700 + user_id,
+                        activity_at=opened,
+                        collected_at=opened,
+                    )
+                ]
+            )
+        await self.repository.apply_mutations(
+            [
+                ReactionMutation(
+                    match_id=session.id,
+                    discord_user_id=2,
+                    action=ReactionAction.REMOVE,
+                    received_at=opened + timedelta(seconds=1),
+                    arrival_seq=4,
+                    outcome="WITHDRAWN",
+                    next_arrival_seq=5,
+                    match_status=MatchStatus.FULL,
+                    roster_entry=RosterEntry(
+                        match_id=session.id,
+                        discord_user_id=2,
+                        discord_display_name="user-2",
+                        reaction_order=2,
+                        status=RosterStatus.WITHDRAWN,
+                        reacted_at=session.created_at,
+                        removed_at=opened + timedelta(seconds=1),
+                    ),
+                    full_reached_at=session.full_reached_at,
+                )
+            ]
+        )
+
+        exported = await self.repository.export_web_tiers(session.id)
+        self.assertEqual([item.discord_user_id for item in exported], ["1"])
+
     async def test_restart_restores_active_session_notification_and_cooldown(self) -> None:
         opened = make_session().created_at + timedelta(minutes=5)
         session = make_session(
@@ -277,6 +368,13 @@ class SQLiteRepositoryTest(unittest.IsolatedAsyncioTestCase):
             session.id, opened + timedelta(minutes=2), 300
         )
         self.assertFalse(claimed_again)
+        claimed_after_cooldown, missing_after_cooldown = (
+            await self.repository.claim_missing_tier_reminder(
+                session.id, opened + timedelta(minutes=6), 300
+            )
+        )
+        self.assertTrue(claimed_after_cooldown)
+        self.assertEqual([item.discord_user_id for item in missing_after_cooldown], [1])
 
     async def test_new_session_cancels_previous_automatic_work(self) -> None:
         first = make_session(match_id="first")

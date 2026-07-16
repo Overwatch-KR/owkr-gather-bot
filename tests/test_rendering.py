@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -48,6 +49,29 @@ class RenderingTest(unittest.TestCase):
         )
         self.assertNotIn("모드:", content)
         self.assertNotIn("@everyone", content)
+
+    def test_template_mentions_are_present_as_text_but_never_allowed_to_ping(self) -> None:
+        template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"
+        config = make_config()
+        config = replace(
+            config,
+            messages=replace(
+                config.messages,
+                participation_notice="@everyone @here <@&999> ✅ 반응",
+                manner_notice="@everyone <@&999> 매너 게임",
+            ),
+        )
+        content = RecruitmentTemplateRenderer(config, template).render(
+            make_session(), config.manager(200)
+        )
+        self.assertIn("@everyone", content)
+        self.assertIn("@here", content)
+        self.assertIn("<@&999>", content)
+
+        allowed = allowed_mentions_for([]).to_dict()
+        self.assertNotIn("everyone", allowed.get("parse", []))
+        self.assertNotIn("roles", allowed.get("parse", []))
+        self.assertNotIn("users", allowed.get("parse", []))
 
     def test_tier_window_upper_bound_is_exclusive(self) -> None:
         session = make_session(completion_notified_at=make_session().created_at)
