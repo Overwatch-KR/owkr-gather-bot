@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Sequence
@@ -25,6 +26,9 @@ from owkr_gather_bot.domain.models import (
     WebTierDTO,
 )
 from owkr_gather_bot.ports.repositories import MatchRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 ACTIVE_STATUSES = (
@@ -65,6 +69,11 @@ class SQLiteMatchRepository(MatchRepository):
         await self._connection.execute("PRAGMA busy_timeout = 5000")
         await self._connection.executescript(migration_path.read_text(encoding="utf-8"))
         await self._connection.commit()
+        logger.info(
+            "SQLite connected and migration completed database=%s migration=%s",
+            self._database_path,
+            migration_path,
+        )
 
     async def close(self) -> None:
         if self._connection is not None:

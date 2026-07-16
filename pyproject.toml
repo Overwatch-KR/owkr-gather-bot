@@ -12,15 +12,21 @@ dependencies = [
   "aiosqlite>=0.21,<1",
   "discord.py>=2,<3",
   "Jinja2>=3.1,<4",
+  "python-dotenv>=1.1,<2",
   "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3,<10",
 ]
 
 [project.scripts]
 owkr-gather-bot = "owkr_gather_bot.main:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["owkr_gather_bot*"]
 
 [tool.setuptools.package-data]
 owkr_gather_bot = ["py.typed"]
-

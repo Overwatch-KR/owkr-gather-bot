@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -19,6 +20,9 @@ from owkr_gather_bot.parsing.match_command import ParsedMatchCommand
 from owkr_gather_bot.ports.repositories import MatchRepository
 
 from .session_actor import SessionActor
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,16 +61,32 @@ class SessionCoordinator:
     async def restore(self) -> None:
         session = await self._repository.get_active_match(self._config.guild_id)
         if session is None:
+            logger.info(
+                "active session recovery completed result=none guild_id=%s",
+                self._config.guild_id,
+            )
             return
         if session.starts_at <= self._clock.now():
             await self._repository.mark_started(session.id, self._clock.now())
+            logger.info("stale active session marked started match_id=%s", session.id)
             return
         if session.status is MatchStatus.CREATED or session.announcement_message_id is None:
             await self._repository.cancel_match(session.id, self._clock.now())
+            logger.warning(
+                "incomplete created session canceled during recovery match_id=%s",
+                session.id,
+            )
             return
         roster = await self._repository.load_roster(session.id)
         self._actor = SessionActor(session, roster, self._writer)
         self._actor.start()
+        logger.info(
+            "active session recovered match_id=%s status=%s roster_count=%s next_arrival_seq=%s",
+            session.id,
+            session.status.value,
+            len(roster),
+            session.next_arrival_seq,
+        )
 
     async def create_replacing_active(self, request: CreateMatchRequest) -> MatchSession:
         async with self._lifecycle_lock:
@@ -88,11 +108,18 @@ class SessionCoordinator:
                 created_at=now,
                 updated_at=now,
             )
-            await self._repository.create_replacing_active(session)
+            previous_ids = await self._repository.create_replacing_active(session)
             if self._actor is not None:
                 await self._actor.stop(discard=True)
                 self._actor = None
             self._created_session = session
+            logger.info(
+                "match created match_id=%s manager_user_id=%s starts_at=%s replaced_match_ids=%s",
+                session.id,
+                session.manager_user_id,
+                session.starts_at.isoformat(),
+                previous_ids,
+            )
             return session
 
     async def activate(self, session: MatchSession, announcement_message_id: int) -> None:
@@ -107,6 +134,11 @@ class SessionCoordinator:
             self._created_session = None
             self._actor = SessionActor(session, [], self._writer)
             self._actor.start()
+            logger.info(
+                "recruitment activated match_id=%s announcement_message_id=%s",
+                session.id,
+                announcement_message_id,
+            )
 
     async def cancel_current(self, *, expected_match_id: str | None = None) -> MatchSession | None:
         async with self._lifecycle_lock:
@@ -121,6 +153,7 @@ class SessionCoordinator:
             session.status = MatchStatus.CANCELED
             self._actor = None
             self._created_session = None
+            logger.info("session canceled match_id=%s", session.id)
             return session
 
     async def start_current(self) -> MatchSession | None:
@@ -137,6 +170,10 @@ class SessionCoordinator:
             session.updated_at = now
             self._actor = None
             self._created_session = None
+            logger.info(
+                "session started and automatic processing stopped match_id=%s",
+                session.id,
+            )
             return session
 
     def ingest_reaction(

@@ -158,6 +158,13 @@ class GatherCog(commands.Cog):
     async def _require_manager(self, ctx: commands.Context) -> bool:
         if self._authorized(ctx):
             return True
+        logger.warning(
+            "unauthorized management command user_id=%s guild_id=%s channel_id=%s command=%s",
+            ctx.author.id,
+            ctx.guild.id if ctx.guild else None,
+            ctx.channel.id,
+            ctx.command.qualified_name if ctx.command else None,
+        )
         await ctx.send("이 채널에서 내전 관리 명령을 사용할 권한이 없습니다.")
         return False
 
@@ -289,6 +296,11 @@ class GatherCog(commands.Cog):
             f"📝 아직 티어를 작성하지 않은 참가자입니다.\n{mentions}",
             allowed_mentions=allowed_mentions_for(user_ids),
         )
+        logger.info(
+            "missing tier reminder sent match_id=%s recipient_count=%s",
+            session.id,
+            len(user_ids),
+        )
 
     @commands.command(name="내전상태")
     async def match_status(self, ctx: commands.Context) -> None:
@@ -364,7 +376,7 @@ class GatherCog(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         if message.guild is None or message.author.bot:
             return
-        self._tier_collector.submit_activity(
+        accepted = self._tier_collector.submit_activity(
             guild_id=message.guild.id,
             channel_id=message.channel.id,
             discord_user_id=message.author.id,
@@ -373,6 +385,14 @@ class GatherCog(commands.Cog):
             discord_message_id=message.id,
             activity_at=message.created_at,
         )
+        if accepted:
+            session = self._coordinator.active_session
+            logger.info(
+                "tier message create detected match_id=%s user_id=%s message_id=%s result=queued",
+                session.id if session else None,
+                message.author.id,
+                message.id,
+            )
 
     @commands.Cog.listener()
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
@@ -394,7 +414,7 @@ class GatherCog(commands.Cog):
             return
         if message.author.bot:
             return
-        self._tier_collector.submit_activity(
+        accepted = self._tier_collector.submit_activity(
             guild_id=payload.guild_id,
             channel_id=payload.channel_id,
             discord_user_id=message.author.id,
@@ -403,17 +423,32 @@ class GatherCog(commands.Cog):
             discord_message_id=message.id,
             activity_at=message.edited_at or self._clock.now(),
         )
+        if accepted:
+            session = self._coordinator.active_session
+            logger.info(
+                "tier message edit detected match_id=%s user_id=%s message_id=%s result=queued",
+                session.id if session else None,
+                message.author.id,
+                message.id,
+            )
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
         if payload.guild_id is None:
             return
-        self._tier_collector.submit_delete(
+        accepted = self._tier_collector.submit_delete(
             guild_id=payload.guild_id,
             channel_id=payload.channel_id,
             discord_message_id=payload.message_id,
             received_at=self._clock.now(),
         )
+        if accepted:
+            session = self._coordinator.active_session
+            logger.info(
+                "tier message delete detected match_id=%s user_id=unavailable message_id=%s result=queued",
+                session.id if session else None,
+                payload.message_id,
+            )
 
 
 class GatherBot(commands.Bot):
@@ -475,7 +510,7 @@ class GatherBot(commands.Bot):
         self.scheduler.start()
 
     async def on_ready(self) -> None:
-        logger.info("logged in as %s", self.user)
+        logger.info("bot ready user_id=%s", self.user.id if self.user else None)
         if not self._caught_up:
             self._caught_up = True
             asyncio.create_task(self._catch_up_tier_messages(), name="tier-message-catch-up")

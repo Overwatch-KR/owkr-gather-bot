@@ -76,8 +76,21 @@ class NotificationWorker:
             self._coordinator.mark_notification_sent(
                 notification.match_id, notification.kind, sent_at
             )
+            logger.info(
+                "notification sent match_id=%s kind=%s discord_message_id=%s",
+                notification.match_id,
+                notification.kind.value,
+                message_id,
+            )
         except Exception as exc:
-            logger.exception("notification delivery failed: %s", notification.dedupe_key)
+            logger.warning(
+                "notification delivery failed match_id=%s kind=%s attempt=%s will_retry=%s",
+                notification.match_id,
+                notification.kind.value,
+                notification.attempts,
+                notification.attempts < self._max_attempts,
+                exc_info=True,
+            )
             await self._repository.mark_notification_failed(
                 notification, str(exc), self._clock.now(), self._max_attempts
             )

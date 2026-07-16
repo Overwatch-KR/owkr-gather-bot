@@ -6,6 +6,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
+
+
+ALLOWED_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
+
+
+class ConfigurationError(ValueError):
+    pass
 
 
 def _snowflake(value: Any, field_name: str) -> int:
@@ -82,11 +90,15 @@ class AppConfig:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
-    token: str
+    token: str = field(repr=False)
     app: AppConfig
+    config_path: Path
     database_path: Path
     template_path: Path
     log_level: str
+    dotenv_path: Path
+    dotenv_loaded: bool
+    working_directory: Path
 
 
 def _optional_text(value: Any) -> str | None:
@@ -155,16 +167,58 @@ def load_app_config(path: Path) -> AppConfig:
     )
 
 
-def load_runtime_config() -> RuntimeConfig:
-    config_path = Path(os.environ.get("OWKR_CONFIG_PATH", "config/config.yaml"))
+def _resolve_path(value: str, working_directory: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = working_directory / path
+    return path.resolve()
+
+
+def load_runtime_config(*, base_directory: Path | None = None) -> RuntimeConfig:
+    working_directory = (base_directory or Path.cwd()).resolve()
+    dotenv_path = working_directory / ".env"
+    dotenv_loaded = load_dotenv(dotenv_path=dotenv_path, override=False)
+
     token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
     if not token:
-        raise ValueError("DISCORD_BOT_TOKEN is required")
+        raise ConfigurationError(
+            "DISCORD_BOT_TOKEN is required; set it in the environment or the project .env file"
+        )
+
+    config_path = _resolve_path(
+        os.environ.get("OWKR_CONFIG_PATH", "config/config.yaml"), working_directory
+    )
+    database_path = _resolve_path(
+        os.environ.get("OWKR_DATABASE_PATH", "data/owkr-gather-bot.sqlite3"),
+        working_directory,
+    )
+    template_path = _resolve_path(
+        os.environ.get("OWKR_TEMPLATE_PATH", "templates/recruitment.txt"),
+        working_directory,
+    )
+    log_level = os.environ.get("OWKR_LOG_LEVEL", "INFO").strip().upper()
+    if log_level not in ALLOWED_LOG_LEVELS:
+        allowed = ", ".join(sorted(ALLOWED_LOG_LEVELS))
+        raise ConfigurationError(f"OWKR_LOG_LEVEL must be one of: {allowed}")
+
+    try:
+        app = load_app_config(config_path)
+    except OSError as exc:
+        detail = exc.strerror or exc.__class__.__name__
+        raise ConfigurationError(f"failed to read config file {config_path}: {detail}") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"invalid YAML in config file {config_path}") from exc
+    except ValueError as exc:
+        raise ConfigurationError(f"invalid config file {config_path}: {exc}") from exc
+
     return RuntimeConfig(
         token=token,
-        app=load_app_config(config_path),
-        database_path=Path(os.environ.get("OWKR_DATABASE_PATH", "data/owkr-gather-bot.sqlite3")),
-        template_path=Path(os.environ.get("OWKR_TEMPLATE_PATH", "templates/recruitment.txt")),
-        log_level=os.environ.get("OWKR_LOG_LEVEL", "INFO").upper(),
+        app=app,
+        config_path=config_path,
+        database_path=database_path,
+        template_path=template_path,
+        log_level=log_level,
+        dotenv_path=dotenv_path,
+        dotenv_loaded=dotenv_loaded,
+        working_directory=working_directory,
     )
-

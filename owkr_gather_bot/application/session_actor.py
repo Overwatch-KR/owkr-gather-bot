@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import replace
 
 from owkr_gather_bot.domain.models import (
@@ -13,6 +14,9 @@ from owkr_gather_bot.domain.models import (
     RosterStatus,
 )
 from owkr_gather_bot.infrastructure.persistence_writer import PersistenceWriter
+
+
+logger = logging.getLogger(__name__)
 
 
 class _Stop:
@@ -147,6 +151,11 @@ class SessionActor:
                     completion_user_ids = tuple(
                         entry.discord_user_id for entry in self.current_confirmed()
                     )
+                    logger.info(
+                        "recruitment reached participant limit match_id=%s participant_count=%s",
+                        self.session.id,
+                        len(completion_user_ids),
+                    )
         else:
             if current is None or not current.is_active:
                 outcome = "DUPLICATE_REMOVE"
@@ -174,4 +183,11 @@ class SessionActor:
             completion_user_ids=completion_user_ids,
         )
         self._writer.submit(mutation)
-
+        logger.debug(
+            "reaction processed match_id=%s user_id=%s action=%s arrival_seq=%s outcome=%s",
+            self.session.id,
+            event.discord_user_id,
+            event.action.value,
+            arrival_seq,
+            outcome,
+        )
