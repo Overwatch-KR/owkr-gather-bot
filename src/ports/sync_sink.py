@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence
 
-from owkr_gather_bot.domain.models import WebTierDTO
+from src.domain.models import WebTierDTO
 
 
 class SyncSink(Protocol):

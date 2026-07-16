@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import replace
+from typing import Awaitable, Callable
 
-from owkr_gather_bot.domain.models import (
+from src.domain.models import (
     MatchSession,
     MatchStatus,
     ReactionAction,
@@ -12,8 +13,9 @@ from owkr_gather_bot.domain.models import (
     ReactionMutation,
     RosterEntry,
     RosterStatus,
+    WaitlistReason,
 )
-from owkr_gather_bot.infrastructure.persistence_writer import PersistenceWriter
+from src.infrastructure.persistence_writer import PersistenceWriter
 
 
 logger = logging.getLogger(__name__)
@@ -29,10 +31,22 @@ class SessionActor:
         session: MatchSession,
         roster: list[RosterEntry],
         writer: PersistenceWriter,
+        reserve_confirmation: (
+            Callable[[MatchSession, int], Awaitable[str | None]] | None
+        ) = None,
+        release_confirmation: (
+            Callable[[MatchSession, int], Awaitable[None]] | None
+        ) = None,
     ) -> None:
         self.session = session
         self._entries = {entry.discord_user_id: entry for entry in roster}
         self._writer = writer
+        self._reserve_confirmation = (
+            reserve_confirmation or self._allow_confirmation
+        )
+        self._release_confirmation = (
+            release_confirmation or self._ignore_confirmation_release
+        )
         self._queue: asyncio.Queue[ReactionEvent | _Stop] = asyncio.Queue(maxsize=2000)
         self._task: asyncio.Task[None] | None = None
         self._accepting = True
@@ -111,11 +125,16 @@ class SessionActor:
             try:
                 if isinstance(item, _Stop):
                     return
-                self._process(item)
+                await self._process(item)
+            except Exception:
+                logger.exception(
+                    "session actor event failed match_id=%s",
+                    self.session.id,
+                )
             finally:
                 self._queue.task_done()
 
-    def _process(self, event: ReactionEvent) -> None:
+    async def _process(self, event: ReactionEvent) -> None:
         if event.received_at >= self.session.starts_at:
             return
 
@@ -134,7 +153,24 @@ class SessionActor:
                     self.session.full_reached_at is None
                     and len(self.current_confirmed()) < self.session.participant_limit
                 )
-                roster_status = RosterStatus.CONFIRMED if can_confirm else RosterStatus.WAITLISTED
+                conflict_match_id: str | None = None
+                if can_confirm:
+                    conflict_match_id = await self._reserve_confirmation(
+                        self.session,
+                        event.discord_user_id,
+                    )
+                roster_status = (
+                    RosterStatus.CONFIRMED
+                    if can_confirm and conflict_match_id is None
+                    else RosterStatus.WAITLISTED
+                )
+                waitlist_reason = None
+                if roster_status is RosterStatus.WAITLISTED:
+                    waitlist_reason = (
+                        WaitlistReason.SCHEDULE_CONFLICT
+                        if conflict_match_id is not None
+                        else WaitlistReason.CAPACITY
+                    )
                 roster_entry = RosterEntry(
                     match_id=self.session.id,
                     discord_user_id=event.discord_user_id,
@@ -142,6 +178,8 @@ class SessionActor:
                     reaction_order=arrival_seq,
                     status=roster_status,
                     reacted_at=event.received_at,
+                    waitlist_reason=waitlist_reason,
+                    conflict_match_id=conflict_match_id,
                 )
                 self._entries[event.discord_user_id] = roster_entry
                 outcome = roster_status.value
@@ -165,10 +203,17 @@ class SessionActor:
             if current is None or not current.is_active:
                 outcome = "DUPLICATE_REMOVE"
             else:
+                if current.status is RosterStatus.CONFIRMED:
+                    await self._release_confirmation(
+                        self.session,
+                        event.discord_user_id,
+                    )
                 roster_entry = replace(
                     current,
                     status=RosterStatus.WITHDRAWN,
                     removed_at=event.received_at,
+                    waitlist_reason=None,
+                    conflict_match_id=None,
                 )
                 self._entries[event.discord_user_id] = roster_entry
                 outcome = "WITHDRAWN"
@@ -196,3 +241,17 @@ class SessionActor:
             arrival_seq,
             outcome,
         )
+
+    @staticmethod
+    async def _allow_confirmation(
+        session: MatchSession,
+        discord_user_id: int,
+    ) -> str | None:
+        return None
+
+    @staticmethod
+    async def _ignore_confirmation_release(
+        session: MatchSession,
+        discord_user_id: int,
+    ) -> None:
+        return None

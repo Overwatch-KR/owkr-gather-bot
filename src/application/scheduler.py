@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from owkr_gather_bot.domain.clock import Clock
-from owkr_gather_bot.infrastructure.persistence_writer import PersistenceWriter
-from owkr_gather_bot.ports.repositories import MatchRepository
+from src.domain.clock import Clock
+from src.infrastructure.persistence_writer import PersistenceWriter
+from src.ports.repositories import MatchRepository
 
 from .coordinator import SessionCoordinator
 
@@ -45,20 +45,31 @@ class MatchScheduler:
         self._task = None
 
     async def tick(self) -> None:
-        session = self._coordinator.active_session
-        if session is None:
+        sessions = self._coordinator.active_sessions
+        if not sessions:
             return
         now = self._clock.now()
-        if now >= session.starts_at:
-            await self._coordinator.start_current()
-            return
         await self._writer.flush()
-        if now >= session.lobby_at and session.lobby_notified_at is None:
-            await self._repository.enqueue_lobby_notification(session.id, now)
-        if session.recruitment_completed_notified_at is not None:
-            await self._repository.enqueue_tier_complete_if_ready(session.id, now)
-            if now >= session.tier_deadline_at:
-                await self._repository.enqueue_tier_missing_reminder_if_due(session.id, now)
+        for session in sessions:
+            try:
+                if now >= session.starts_at:
+                    await self._coordinator.start_match(session.id)
+                    continue
+                if now >= session.lobby_at and session.lobby_notified_at is None:
+                    await self._repository.enqueue_lobby_notification(session.id, now)
+                if session.recruitment_completed_notified_at is not None:
+                    await self._repository.enqueue_tier_complete_if_ready(session.id, now)
+                    if now >= session.tier_deadline_at:
+                        await self._repository.enqueue_tier_missing_reminder_if_due(
+                            session.id,
+                            now,
+                        )
+            except Exception:
+                logger.exception(
+                    "scheduler session tick failed match_id=%s match_code=%s",
+                    session.id,
+                    session.match_code,
+                )
 
     async def _run(self) -> None:
         while True:

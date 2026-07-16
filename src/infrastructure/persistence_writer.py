@@ -4,8 +4,8 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from owkr_gather_bot.domain.models import PersistenceMutation
-from owkr_gather_bot.ports.repositories import MatchRepository
+from src.domain.models import PersistenceMutation
+from src.ports.repositories import MatchRepository
 
 
 logger = logging.getLogger(__name__)

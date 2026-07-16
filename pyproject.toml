@@ -22,11 +22,12 @@ test = [
 ]
 
 [project.scripts]
-owkr-gather-bot = "owkr_gather_bot.main:main"
+owkr-gather-bot = "src.main:main"
+owkr-gather-bot-e2e-check = "src.e2e_preflight:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["owkr_gather_bot*"]
+include = ["src*"]
 
 [tool.setuptools.package-data]
-owkr_gather_bot = ["py.typed"]
+src = ["py.typed"]

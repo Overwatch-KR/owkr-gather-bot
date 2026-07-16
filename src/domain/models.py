@@ -20,6 +20,11 @@ class RosterStatus(StrEnum):
     WITHDRAWN = "WITHDRAWN"
 
 
+class WaitlistReason(StrEnum):
+    CAPACITY = "CAPACITY"
+    SCHEDULE_CONFLICT = "SCHEDULE_CONFLICT"
+
+
 class ReactionAction(StrEnum):
     ADD = "ADD"
     REMOVE = "REMOVE"
@@ -27,6 +32,8 @@ class ReactionAction(StrEnum):
 
 class NotificationKind(StrEnum):
     RECRUITMENT_COMPLETE = "RECRUITMENT_COMPLETE"
+    TIER_ANCHOR = "TIER_ANCHOR"
+    TIER_ANCHOR_RECREATED = "TIER_ANCHOR_RECREATED"
     TIER_MISSING_REMINDER = "TIER_MISSING_REMINDER"
     LOBBY_REMINDER = "LOBBY_REMINDER"
     TIER_COMPLETE = "TIER_COMPLETE"
@@ -43,6 +50,7 @@ class NotificationStatus(StrEnum):
 @dataclass(slots=True)
 class MatchSession:
     id: str
+    match_code: str
     guild_id: int
     manager_user_id: int
     command_channel_id: int
@@ -57,7 +65,10 @@ class MatchSession:
     lobby_at: datetime
     created_at: datetime
     updated_at: datetime
+    source_request_id: str | None = None
+    source_request_type: str | None = None
     announcement_message_id: int | None = None
+    tier_anchor_message_id: int | None = None
     full_reached_at: datetime | None = None
     recruitment_completed_notified_at: datetime | None = None
     tier_complete_notified_at: datetime | None = None
@@ -94,6 +105,8 @@ class RosterEntry:
     status: RosterStatus
     reacted_at: datetime
     removed_at: datetime | None = None
+    waitlist_reason: WaitlistReason | None = None
+    conflict_match_id: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -153,6 +166,14 @@ class TierSubmission:
     discord_message_id: int
     activity_at: datetime
     collected_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TierMessageBinding:
+    discord_message_id: int
+    match_id: str
+    discord_user_id: int
+    bound_at: datetime
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,7 +12,9 @@ import yaml
 class RecruitmentCompleteCopy:
     start_heading: str = "내전 시작"
     tier_heading: str = "티어 작성"
-    tier_instruction: str = "가능한 빠르게 아래 형식으로 작성해 주세요."
+    tier_instruction: str = (
+        "내전별 티어 기준 메시지에 답장으로 아래 형식을 작성해 주세요."
+    )
     tier_format_example: str = (
         "배틀태그\n"
         "탱커 / 딜러 / 힐러\n\n"

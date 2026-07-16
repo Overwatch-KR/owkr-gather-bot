@@ -4,9 +4,9 @@ import asyncio
 import logging
 from typing import Protocol
 
-from owkr_gather_bot.domain.clock import Clock
-from owkr_gather_bot.domain.models import NotificationRecord
-from owkr_gather_bot.ports.repositories import MatchRepository
+from src.domain.clock import Clock
+from src.domain.models import NotificationRecord
+from src.ports.repositories import MatchRepository
 
 from .coordinator import SessionCoordinator
 from .rendering import NotificationRenderer, RenderedNotification
@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class NotificationTransport(Protocol):
-    async def send(self, channel_id: int, rendered: RenderedNotification) -> int: ...
+    async def send(
+        self,
+        channel_id: int,
+        rendered: RenderedNotification,
+    ) -> int | None: ...
 
 
 class NotificationWorker:
@@ -67,17 +71,20 @@ class NotificationWorker:
             if session is None or not session.is_automatic():
                 raise RuntimeError("match is no longer active")
             if self._clock.now() >= session.starts_at:
-                await self._coordinator.start_current()
+                await self._coordinator.start_match(notification.match_id)
                 return
             rendered = self._renderer.render(notification, session)
             message_id = await self._transport.send(notification.channel_id, rendered)
             sent_at = self._clock.now()
             await self._repository.mark_notification_sent(notification, message_id, sent_at)
             self._coordinator.mark_notification_sent(
-                notification.match_id, notification.kind, sent_at
+                notification.match_id,
+                notification.kind,
+                sent_at,
+                message_id,
             )
             logger.info(
-                "notification sent match_id=%s kind=%s discord_message_id=%s",
+                "notification handled match_id=%s kind=%s discord_message_id=%s",
                 notification.match_id,
                 notification.kind.value,
                 message_id,

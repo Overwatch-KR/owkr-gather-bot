@@ -8,8 +8,8 @@ from zoneinfo import ZoneInfo
 from jinja2 import Environment, StrictUndefined
 from jinja2.sandbox import SandboxedEnvironment
 
-from owkr_gather_bot.config import AppConfig, ManagerConfig
-from owkr_gather_bot.domain.models import MatchSession, NotificationKind, NotificationRecord
+from src.config import AppConfig, ManagerConfig
+from src.domain.models import MatchSession, NotificationKind, NotificationRecord
 
 
 KST = ZoneInfo("Asia/Seoul")
@@ -48,6 +48,35 @@ def format_discord_timestamp(value, style: str) -> str:
 class RenderedNotification:
     content: str
     allowed_user_ids: tuple[int, ...] = ()
+    voice_channel_id: int | None = None
+    content_before_mentions: str | None = None
+    content_after_mentions: str | None = None
+
+    def with_allowed_user_ids(
+        self,
+        user_ids: tuple[int, ...],
+    ) -> RenderedNotification:
+        if self.content_before_mentions is None or self.content_after_mentions is None:
+            raise ValueError("notification content cannot be rebuilt with filtered mentions")
+        return RenderedNotification(
+            content=(
+                self.content_before_mentions
+                + _mention_lines(user_ids)
+                + self.content_after_mentions
+            ),
+            allowed_user_ids=user_ids,
+            voice_channel_id=self.voice_channel_id,
+            content_before_mentions=self.content_before_mentions,
+            content_after_mentions=self.content_after_mentions,
+        )
+
+
+def _mention_lines(user_ids: tuple[int, ...]) -> str:
+    mentions = [f"<@{user_id}>" for user_id in user_ids]
+    return "\n".join(
+        " ".join(mentions[index : index + 5])
+        for index in range(0, len(mentions), 5)
+    )
 
 
 class RecruitmentTemplateRenderer:
@@ -111,7 +140,8 @@ class NotificationRenderer:
             participant_count=max(10, config.defaults.participant_limit),
             manner_notice=config.messages.manner_notice,
         ).strip()
-        if len(content) > 2000:
+        preview_prefix = "**내전 코드** · `TEST`\n\n"
+        if len(preview_prefix) + len(content) > 2000:
             raise ValueError(
                 "rendered recruitment complete message exceeds Discord's "
                 "2000 character limit"
@@ -128,6 +158,7 @@ class NotificationRenderer:
     ) -> RenderedNotification:
         return self._render_recruitment_complete(
             user_ids=user_ids,
+            match_code=session.match_code,
             starts_at=session.starts_at,
             mode=session.mode or self._config.defaults.mode_display_fallback or "",
             tier_channel_id=session.tier_channel_id,
@@ -144,6 +175,7 @@ class NotificationRenderer:
         starts_at = now + timedelta(hours=1)
         return self._render_recruitment_complete(
             user_ids=user_ids,
+            match_code="TEST",
             starts_at=starts_at,
             mode=self._config.defaults.mode_display_fallback or "",
             tier_channel_id=self._config.channels.tier,
@@ -157,6 +189,7 @@ class NotificationRenderer:
         self,
         *,
         user_ids: tuple[int, ...],
+        match_code: str,
         starts_at: datetime,
         mode: str,
         tier_channel_id: int,
@@ -187,6 +220,7 @@ class NotificationRenderer:
             participant_count=len(user_ids),
             manner_notice=self._config.messages.manner_notice,
         ).strip()
+        content = f"**내전 코드** · `{match_code}`\n\n{content}"
         if len(content) > 2000:
             raise ValueError(
                 "rendered recruitment complete message exceeds Discord's "
@@ -201,23 +235,56 @@ class NotificationRenderer:
             user_ids = tuple(int(user_id) for user_id in notification.payload.get("user_ids", []))
             return self.render_recruitment_complete(session, user_ids)
 
+        if notification.kind is NotificationKind.TIER_ANCHOR:
+            mode = session.mode or self._config.defaults.mode_display_fallback or "일반 내전"
+            content = (
+                f"## 📋 {format_discord_timestamp(session.starts_at, 't')} "
+                f"내전 티어 작성 · `{session.match_code}`\n\n"
+                f"**관리자** · <@{session.manager_user_id}>\n"
+                f"**모드** · {mode}\n\n"
+                "이 내전에 참가한 분은 **이 메시지에 답장**으로 티어를 작성해 주세요.\n"
+                f"**티어 작성 마감** · "
+                f"{format_discord_timestamp(session.tier_deadline_at, 't')}"
+            )
+            return RenderedNotification(content=content)
+
+        if notification.kind is NotificationKind.TIER_ANCHOR_RECREATED:
+            anchor_id = notification.payload.get("tier_anchor_message_id")
+            anchor = f"https://discord.com/channels/{session.guild_id}/{session.tier_channel_id}/{anchor_id}"
+            content = (
+                f"📋 `{session.match_code}` 내전의 티어 작성 안내를 "
+                f"[다시 등록했습니다.]({anchor})"
+            )
+            return RenderedNotification(content=content)
+
         if notification.kind is NotificationKind.LOBBY_REMINDER:
             user_ids = tuple(int(user_id) for user_id in notification.payload.get("user_ids", []))
-            mentions = self._mention_lines(user_ids)
-            content = (
-                "## 🔊 대기실 입장 안내\n\n"
+            content_before_mentions = (
+                f"## 🔊 대기실 입장 안내 · `{session.match_code}`\n\n"
                 f"**내전 시작** · {format_discord_timestamp(session.starts_at, 'F')} "
                 f"({format_discord_timestamp(session.starts_at, 'R')})\n\n"
-                f"{mentions}\n\n"
-                f"📢 **{self._config.defaults.lobby_name}**으로 입장해 주세요."
             )
-            return RenderedNotification(content=content, allowed_user_ids=user_ids)
+            content_after_mentions = (
+                f"\n\n📢 **{self._config.defaults.lobby_name}**으로 입장해 주세요."
+            )
+            content = (
+                content_before_mentions
+                + _mention_lines(user_ids)
+                + content_after_mentions
+            )
+            return RenderedNotification(
+                content=content,
+                allowed_user_ids=user_ids,
+                voice_channel_id=self._config.defaults.lobby_voice_channel_id,
+                content_before_mentions=content_before_mentions,
+                content_after_mentions=content_after_mentions,
+            )
 
         if notification.kind is NotificationKind.TIER_MISSING_REMINDER:
             user_ids = tuple(int(user_id) for user_id in notification.payload.get("user_ids", []))
-            mentions = self._mention_lines(user_ids)
+            mentions = _mention_lines(user_ids)
             content = (
-                "**티어 작성 마감 확인**\n"
+                f"**티어 작성 마감 확인 · `{session.match_code}`**\n"
                 f"{mentions}\n\n"
                 f"<#{session.tier_channel_id}>에서 티어 작성이 확인되지 않았습니다. "
                 "관리자 안내에 따라 작성 상태를 확인해 주세요."
@@ -227,11 +294,6 @@ class NotificationRenderer:
         return RenderedNotification(
             content=(
                 f"✅ {format_discord_timestamp(session.starts_at, 'F')} 내전 참가자 "
-                "전원이 티어 작성을 완료했습니다."
+                f"전원이 티어 작성을 완료했습니다. · `{session.match_code}`"
             )
         )
-
-    @staticmethod
-    def _mention_lines(user_ids: tuple[int, ...]) -> str:
-        mentions = [f"<@{user_id}>" for user_id in user_ids]
-        return "\n".join(" ".join(mentions[index : index + 5]) for index in range(0, len(mentions), 5))

@@ -41,6 +41,7 @@ class DefaultConfig:
     lobby_offset_minutes: int = 10
     past_time_policy: str = "reject"
     recruitment_role_id: int | None = None
+    lobby_voice_channel_id: int | None = None
     mode_display_fallback: str | None = None
     lobby_name: str = "대기실 1번"
 
@@ -126,6 +127,14 @@ def load_app_config(path: Path) -> AppConfig:
             if defaults_raw.get("recruitment_role_id") is not None
             else None
         ),
+        lobby_voice_channel_id=(
+            _snowflake(
+                defaults_raw["lobby_voice_channel_id"],
+                "defaults.lobby_voice_channel_id",
+            )
+            if defaults_raw.get("lobby_voice_channel_id") is not None
+            else None
+        ),
         mode_display_fallback=_optional_text(defaults_raw.get("mode_display_fallback")),
         lobby_name=str(defaults_raw.get("lobby_name", "대기실 1번")).strip(),
     )
@@ -133,6 +142,8 @@ def load_app_config(path: Path) -> AppConfig:
         raise ValueError("participant_limit must be positive")
     if defaults.past_time_policy != "reject":
         raise ValueError("MVP only supports past_time_policy: reject")
+    if defaults.lobby_voice_channel_id is None:
+        raise ValueError("defaults.lobby_voice_channel_id is required")
 
     managers: dict[int, ManagerConfig] = {}
     for user_id, manager_raw in (raw.get("managers", {}) or {}).items():

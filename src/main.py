@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 import sys
 
-from owkr_gather_bot.adapters.discord_adapter import GatherBot
-from owkr_gather_bot.application.coordinator import SessionCoordinator
-from owkr_gather_bot.application.scheduler import MatchScheduler
-from owkr_gather_bot.application.tier_collector import TierCollector
-from owkr_gather_bot.config import ConfigurationError, load_runtime_config
-from owkr_gather_bot.domain.clock import SystemClock
-from owkr_gather_bot.infrastructure.persistence_writer import PersistenceWriter
-from owkr_gather_bot.infrastructure.sqlite_repository import SQLiteMatchRepository
+from src.adapters.discord_adapter import GatherBot
+from src.application.coordinator import SessionCoordinator
+from src.application.scheduler import MatchScheduler
+from src.application.tier_collector import TierCollector
+from src.config import ConfigurationError, load_runtime_config
+from src.domain.clock import SystemClock
+from src.infrastructure.persistence_writer import PersistenceWriter
+from src.infrastructure.sqlite_repository import SQLiteMatchRepository
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def main() -> None:
     writer = PersistenceWriter(repository)
     clock = SystemClock()
     coordinator = SessionCoordinator(runtime.app, repository, writer, clock)
-    tier_collector = TierCollector(coordinator, writer, clock)
+    tier_collector = TierCollector(repository, clock)
     scheduler = MatchScheduler(coordinator, repository, writer, clock)
     bot = GatherBot(
         config=runtime.app,

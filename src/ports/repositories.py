@@ -5,11 +5,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
-from owkr_gather_bot.domain.models import (
+from src.domain.models import (
     MatchSession,
     NotificationRecord,
     PersistenceMutation,
     RosterEntry,
+    TierMessageBinding,
     TierParticipantStatus,
     TierSubmission,
     WebTierDTO,
@@ -24,7 +25,7 @@ class MatchRepository(ABC):
     async def close(self) -> None: ...
 
     @abstractmethod
-    async def create_replacing_active(self, session: MatchSession) -> list[str]: ...
+    async def create_match(self, session: MatchSession) -> None: ...
 
     @abstractmethod
     async def activate_recruiting(self, match_id: str, announcement_message_id: int, now: datetime) -> None: ...
@@ -39,13 +40,64 @@ class MatchRepository(ABC):
     async def get_match(self, match_id: str) -> MatchSession | None: ...
 
     @abstractmethod
-    async def get_active_match(self, guild_id: int) -> MatchSession | None: ...
+    async def get_match_by_code(self, match_code: str) -> MatchSession | None: ...
+
+    @abstractmethod
+    async def get_match_by_source(
+        self,
+        source_request_type: str,
+        source_request_id: str,
+    ) -> MatchSession | None: ...
+
+    @abstractmethod
+    async def get_match_by_tier_anchor(
+        self,
+        tier_anchor_message_id: int,
+    ) -> MatchSession | None: ...
+
+    @abstractmethod
+    async def get_active_matches(self, guild_id: int) -> list[MatchSession]: ...
 
     @abstractmethod
     async def get_latest_match(self, guild_id: int) -> MatchSession | None: ...
 
     @abstractmethod
     async def load_roster(self, match_id: str) -> list[RosterEntry]: ...
+
+    @abstractmethod
+    async def get_tier_candidates(
+        self,
+        guild_id: int,
+        discord_user_id: int,
+        activity_at: datetime,
+    ) -> list[MatchSession]: ...
+
+    @abstractmethod
+    async def get_tier_binding(
+        self,
+        discord_message_id: int,
+    ) -> TierMessageBinding | None: ...
+
+    @abstractmethod
+    async def upsert_tier_message(
+        self,
+        binding: TierMessageBinding,
+        submission: TierSubmission,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def delete_bound_tier_message(
+        self,
+        discord_message_id: int,
+        received_at: datetime,
+    ) -> TierMessageBinding | None: ...
+
+    @abstractmethod
+    async def request_tier_anchor_recreation(
+        self,
+        tier_anchor_message_id: int,
+        now: datetime,
+    ) -> MatchSession | None: ...
 
     @abstractmethod
     async def apply_mutations(self, mutations: Sequence[PersistenceMutation]) -> None: ...
@@ -80,7 +132,10 @@ class MatchRepository(ABC):
 
     @abstractmethod
     async def mark_notification_sent(
-        self, notification: NotificationRecord, discord_message_id: int, sent_at: datetime
+        self,
+        notification: NotificationRecord,
+        discord_message_id: int | None,
+        sent_at: datetime,
     ) -> None: ...
 
     @abstractmethod
