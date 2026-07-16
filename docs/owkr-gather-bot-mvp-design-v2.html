@@ -379,11 +379,11 @@ CANCELED    시작 전 취소</pre>
   <h3>티어 현황</h3>
   <ul>
     <li><code>/티어현황</code>: 현재 확정자 중 qualifying submission 보유/미보유 인원 표시</li>
-    <li><code>/티어미작성알림</code>: 현재 미작성 확정자만 mention, 5분 cooldown을 SQLite에 저장</li>
-    <li>티어 마감 정각에는 미작성 확정 참가자를 outbox로 한 번 자동 mention하며, 마감 이후 작성은 인정하지 않음</li>
+    <li><code>/티어현황</code>과 <code>/내전상태</code> 상세에서 작성 완료·미작성 인원을 확인</li>
+    <li>티어 미작성자 mention, 마감 자동 알림과 전원 완료 알림은 보내지 않으며 마감 이후 작성은 인정하지 않음</li>
     <li>수집 창 시작 전에는 “모집 완료 공지 후 수집 시작”으로 응답</li>
     <li>현재 확정자 전원이 작성하면 관리자 채널에 매치당 한 번만 안내</li>
-    <li>완료 안내 후 roster가 바뀌면 다시 현황을 계산하지만 “전원 완료” 안내는 재전송하지 않음</li>
+    <li>roster나 티어 메시지가 바뀌면 관리자 현황 화면에서 최신 상태를 다시 계산</li>
   </ul>
 
   <h2 id="reactions">6. 반응 이벤트와 참가 순서</h2>
@@ -515,14 +515,14 @@ Embed 제목: 내전 모집
 {{ participant_count }}  확정 참가자 수
 {{ manner_notice }}      매너 안내</pre>
   <p><code>/공지문구</code>는 비개발자용 메뉴를 열고 문구 편집과 미리보기 버튼을 함께 제공합니다. 관리자는 시작 제목, 티어 제목, 티어 안내, 작성 양식·예시, 추가 안내만 입력하고 시간·채널·일정은 봇이 자동으로 배치합니다. 모집 완료 공지에는 참가자 목록을 표시하지 않습니다. Jinja 변수와 고급 템플릿 편집 명령은 관리자 화면에 노출하지 않습니다. 저장 결과는 다음 완료 공지부터 재시작 없이 적용하며 Discord 메시지 2,000자 제한을 렌더링 후 검증합니다.</p>
-  <p>모집 완료 공지는 사용자 mention을 모두 비활성화합니다. 사용자 호출이 필요한 티어 미작성 알림과 대기실 안내만 대상 사용자 ID를 <code>allowed_mentions.users</code>에 포함합니다. Jinja sandbox와 StrictUndefined로 객체 내부 접근, 알 수 없는 변수, 2,000자 초과 결과를 저장 단계에서 거부합니다.</p>
+  <p>모집 완료 공지는 사용자 mention과 공개 내전 코드를 비활성화합니다. 사용자 호출이 필요한 대기실 안내만 대상 사용자 ID를 <code>allowed_mentions.users</code>에 포함합니다. Jinja sandbox와 StrictUndefined로 객체 내부 접근, 알 수 없는 변수, 2,000자 초과 결과를 저장 단계에서 거부합니다.</p>
 
   <h3>mention 안전</h3>
   <ul>
     <li>모집 공지는 <code>recruitment_role_id</code> 역할 하나만 허용하고 YAML 기반 임의 mention은 차단합니다.</li>
-    <li>완료 공지는 사용자 mention을 차단하고, 미작성 알림과 대기실 안내만 해당 대상자를 허용합니다.</li>
-    <li>대기실 안내는 전송 시점의 확정자만 허용합니다.</li>
-    <li>대기실 안내 후 승격된 사용자는 승격 알림에 즉시 대기실 입장 문구를 함께 보내며 그 사용자 한 명만 mention합니다.</li>
+    <li>완료 공지는 사용자 mention을 차단하고, 대기실 안내만 해당 미입장자를 허용합니다.</li>
+    <li>시작 시각 차이가 1시간 미만인 활성 내전이 있으면 나중에 생성한 내전을 대기실 2로 고정 배정합니다.</li>
+    <li>대기실 안내는 전송 시점의 확정자 중 배정된 음성 채널에 없는 사용자만 허용합니다.</li>
     <li><code>@everyone</code>, <code>@here</code>, 역할 mention 권한은 부여하지 않습니다.</li>
   </ul>
 
@@ -603,8 +603,8 @@ Embed 제목: 내전 모집
         <li>raw reaction add/remove, actor arrival_seq, 10명/대기자/승격</li>
         <li>완료 공지 한 번과 안전한 allowed_mentions</li>
         <li>완료 공지 이후부터 마감 전까지의 최신 티어 원문 upsert</li>
-        <li><code>/티어현황</code>, <code>/티어미작성알림</code>, 5분 cooldown</li>
-        <li>티어 마감 정각 미작성 확정 참가자 자동 mention 1회</li>
+        <li><code>/티어현황</code>과 <code>/내전상태</code> 상세의 작성 인원 표시</li>
+        <li>티어 미작성·전원 완료 후속 mention 없음</li>
         <li>전원 작성 관리자 알림 한 번</li>
         <li>시작 10분 전 대기실 알림, 시작 전 로스터 변경 계속 반영</li>
         <li>시작 시 roster 동결, 시작 후 제거 관리자 알림</li>
@@ -684,7 +684,7 @@ Embed 제목: 내전 모집
         <li>부여: VIEW_CHANNEL, SEND_MESSAGES, READ_MESSAGE_HISTORY, ADD_REACTIONS, EMBED_LINKS</li>
         <li>미부여: ADMINISTRATOR, MANAGE_MESSAGES, MENTION_EVERYONE, MANAGE_ROLES, KICK/BAN</li>
         <li>slash invocation은 일반 사용자 메시지를 만들지 않으며, 취소 시 봇이 작성한 모집 공지만 직접 삭제</li>
-        <li>완료·미작성·대기실 메시지는 명시된 user ID만 <code>allowed_mentions</code>에 포함</li>
+        <li>대기실 메시지는 명시된 user ID만 <code>allowed_mentions</code>에 포함</li>
       </ul>
     </section>
   </div>
@@ -706,12 +706,12 @@ Embed 제목: 내전 모집
         <tr><td>과거 메시지</td><td>기존 메시지 미수정, 창 안 수정, 마감 후 수정</td><td>창 안 실제 수정만 최신 후보</td></tr>
         <tr><td>최신 선택</td><td>새 메시지 후 오래된 메시지 수정, 동일 시각 tie</td><td>activity_at 우선, message ID tie-break</td></tr>
         <tr><td>티어 삭제</td><td>현재 저장된 message 삭제</td><td>미작성 전환, 이전 history fallback 없음</td></tr>
-        <tr><td>마감 미작성</td><td>마감 정각 scheduler 중복 tick·재시작</td><td>현재 미작성 확정 참가자만 한 번 mention</td></tr>
+        <tr><td>마감 미작성</td><td>마감 정각 scheduler tick·재시작</td><td>자동 mention 없이 관리자 현황에서만 확인</td></tr>
         <tr><td>모드</td><td>명시 모드, 관리자 기본, 둘 다 없음</td><td>null 허용, 공지 줄 생략 가능</td></tr>
         <tr><td>지난 시각</td><td>현재보다 지난 시각 입력</td><td>session 0개, 미래 시각 재입력 안내</td></tr>
         <tr><td>arrival_seq</td><td>18명 burst, duplicate, remove/re-add</td><td>actor dequeue 순서, 재진입은 새 reactionOrder</td></tr>
         <tr><td>시작 경계</td><td>received_at이 시작 직전/정각/직후인 확정자 제거</td><td>직전만 승격, 정각 이후 roster 동결</td></tr>
-        <tr><td>대기실 이후 승격</td><td>시작 5분 전 확정자 제거</td><td>대기자 승격 + 승격자 단독 대기실 안내</td></tr>
+        <tr><td>근접한 다중 내전</td><td>시작 시각 차이 59분/60분 경계</td><td>59분은 후발 내전 대기실 2, 60분은 대기실 1</td></tr>
         <tr><td>상태</td><td>FULL→RECRUITING→FULL, STARTED, 취소/종료</td><td>6개 상태 밖의 값 없음, 완료 알림 재전송 없음</td></tr>
         <tr><td>웹 DTO</td><td>작성/미작성/대기/철회 사용자 export</td><td>확정·작성자만 4필드, 헤더 재구성 없음</td></tr>
         <tr><td>재시작</td><td>대기실 전후, 시작 전후, cooldown 도중</td><td>중복 최소화 및 timestamp 복구</td></tr>
