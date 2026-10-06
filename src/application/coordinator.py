@@ -42,6 +42,12 @@ class DuplicateSourceRequest(RuntimeError):
         super().__init__(f"source request already created match {session.id}")
 
 
+class DuplicateStartTime(RuntimeError):
+    def __init__(self, session: MatchSession) -> None:
+        self.session = session
+        super().__init__(f"active match already starts at {session.starts_at.isoformat()}")
+
+
 class SessionCoordinator:
     def __init__(
         self,
@@ -198,6 +204,18 @@ class SessionCoordinator:
                 if existing is not None:
                     raise DuplicateSourceRequest(existing)
 
+            starts_at = request.parsed.starts_at.astimezone(timezone.utc)
+            existing_at_start = next(
+                (
+                    session
+                    for session in self.active_sessions
+                    if session.starts_at == starts_at
+                ),
+                None,
+            )
+            if existing_at_start is not None:
+                raise DuplicateStartTime(existing_at_start)
+
             match_code = await self._new_match_code()
             now = self._clock.now()
             lobby_voice_channel_id, lobby_name = self.lobby_assignment_for(
@@ -215,7 +233,7 @@ class SessionCoordinator:
                 mode=request.parsed.mode,
                 participant_limit=self._config.defaults.participant_limit,
                 status=MatchStatus.CREATED,
-                starts_at=request.parsed.starts_at.astimezone(timezone.utc),
+                starts_at=starts_at,
                 tier_deadline_at=request.parsed.tier_deadline_at.astimezone(timezone.utc),
                 lobby_at=request.parsed.lobby_at.astimezone(timezone.utc),
                 lobby_voice_channel_id=lobby_voice_channel_id,

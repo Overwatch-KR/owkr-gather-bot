@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.application.coordinator import (
     CreateMatchRequest,
+    DuplicateStartTime,
     DuplicateSourceRequest,
     SessionCoordinator,
 )
@@ -23,7 +24,6 @@ from src.domain.models import (
     RosterEntry,
     RosterStatus,
     TierUpsertMutation,
-    WaitlistReason,
 )
 from src.infrastructure.sqlite_repository import SQLiteMatchRepository
 from src.parsing.match_command import ParsedMatchCommand
@@ -162,88 +162,21 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.lobby_voice_channel_id, 105)
         self.assertEqual(second.lobby_name, "대기실 1번")
 
-    async def test_same_time_identical_matches_have_independent_codes_and_actors(
-        self,
-    ) -> None:
-        parsed = self.parsed(2)
-        sessions = []
-        for index in range(3):
-            session = await self.coordinator.create_match(
-                CreateMatchRequest(200, 101, parsed)
-            )
-            await self.coordinator.activate(session, 1100 + index)
-            sessions.append(session)
-
-        self.assertEqual(len({session.id for session in sessions}), 3)
-        self.assertEqual(len({session.match_code for session in sessions}), 3)
-        self.assertTrue(
-            all(
-                set(session.match_code).isdisjoint({"0", "O", "1", "I", "L"})
-                for session in sessions
-            )
-        )
-        for index, session in enumerate(sessions):
-            actor = self.coordinator.actor_for_match(session.id)
-            for offset in range(18):
-                user_id = index * 100 + offset + 1
-                self.assertTrue(
-                    actor.ingest(
-                        ReactionEvent(
-                            match_id=session.id,
-                            discord_user_id=user_id,
-                            discord_display_name=f"user-{user_id}",
-                            action=ReactionAction.ADD,
-                            received_at=self.clock.now()
-                            + timedelta(milliseconds=offset),
-                        )
-                    )
-                )
-            await actor.drain()
-            self.assertEqual(len(actor.current_confirmed()), 10)
-            self.assertEqual(len(actor.current_waitlist()), 8)
-            self.assertEqual(
-                [entry.reaction_order for entry in actor.current_confirmed() + actor.current_waitlist()],
-                list(range(1, 19)),
-            )
-
-    async def test_same_user_same_time_is_waitlisted_with_conflict(self) -> None:
+    async def test_same_time_match_is_rejected(self) -> None:
         parsed = self.parsed(2)
         first = await self.coordinator.create_match(
             CreateMatchRequest(200, 101, parsed)
         )
-        second = await self.coordinator.create_match(
-            CreateMatchRequest(200, 101, parsed)
-        )
-        await self.coordinator.activate(first, 1201)
-        await self.coordinator.activate(second, 1202)
+        await self.coordinator.activate(first, 1100)
+        self.assertEqual(first.participant_limit, 10)
 
-        first_actor = self.coordinator.actor_for_match(first.id)
-        second_actor = self.coordinator.actor_for_match(second.id)
-        first_actor.ingest(
-            ReactionEvent(
-                match_id=first.id,
-                discord_user_id=77,
-                discord_display_name="same-user",
-                action=ReactionAction.ADD,
-                received_at=self.clock.now(),
+        with self.assertRaises(DuplicateStartTime) as raised:
+            await self.coordinator.create_match(
+                CreateMatchRequest(201, 101, parsed)
             )
-        )
-        await first_actor.drain()
-        second_actor.ingest(
-            ReactionEvent(
-                match_id=second.id,
-                discord_user_id=77,
-                discord_display_name="same-user",
-                action=ReactionAction.ADD,
-                received_at=self.clock.now() + timedelta(milliseconds=1),
-            )
-        )
-        await second_actor.drain()
 
-        self.assertEqual(first_actor.current_confirmed()[0].discord_user_id, 77)
-        conflict = second_actor.current_waitlist()[0]
-        self.assertEqual(conflict.waitlist_reason, WaitlistReason.SCHEDULE_CONFLICT)
-        self.assertEqual(conflict.conflict_match_id, first.id)
+        self.assertEqual(raised.exception.session.id, first.id)
+        self.assertEqual(len(self.coordinator.active_sessions), 1)
 
     async def test_canceling_one_match_keeps_other_actor_running(self) -> None:
         first = await self.coordinator.create_match(

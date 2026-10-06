@@ -23,6 +23,7 @@ from src.adapters.discord_adapter import (
     _normalized_command_payload,
     match_status_label,
 )
+from src.application.coordinator import DuplicateStartTime
 from src.application.recruitment_complete_editor import (
     RecruitmentCompleteCopy,
     load_recruitment_complete_copy,
@@ -317,6 +318,33 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("모집 공지 보기", content)
         self.assertIn("/100/102/1000", content)
         self.assertNotIn(session.id, content)
+
+    async def test_create_confirmation_explains_duplicate_start_time(self) -> None:
+        original = MagicMock(spec=discord.Interaction)
+        original.id = 999
+        original.channel_id = 101
+        original.user.id = 200
+        session = make_session()
+        parsed = SimpleNamespace(
+            starts_at=session.starts_at,
+            tier_deadline_at=session.tier_deadline_at,
+            lobby_at=session.lobby_at,
+            mode=session.mode,
+        )
+        cog = object.__new__(GatherCog)
+        cog.create_match = AsyncMock(side_effect=DuplicateStartTime(session))
+        view = CreateMatchConfirmationView(cog, original, parsed)
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=200),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+
+        await view.children[0].callback(interaction)
+
+        content = interaction.edit_original_response.await_args.kwargs["content"]
+        self.assertIn("같은 시작 시각", content)
+        self.assertIn("시간을 변경", content)
 
     async def test_cancel_confirmation_removes_ephemeral_result_after_cleanup(
         self,

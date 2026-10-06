@@ -14,6 +14,7 @@ from yaml import YAMLError
 
 from src.application.coordinator import (
     CreateMatchRequest,
+    DuplicateStartTime,
     DuplicateSourceRequest,
     SessionCoordinator,
 )
@@ -571,6 +572,16 @@ class CreateMatchConfirmationView(discord.ui.View):
             )
         except DuplicateSourceRequest as exc:
             session = exc.session
+        except DuplicateStartTime:
+            await interaction.edit_original_response(
+                content=(
+                    "같은 시작 시각에 이미 활성 내전이 있습니다. "
+                    "시간을 변경하거나 기존 내전을 취소한 뒤 다시 시도해 주세요."
+                ),
+                view=None,
+                allowed_mentions=allowed_mentions_for([]),
+            )
+            return
         except Exception:
             logger.exception("match creation failed after confirmation")
             await interaction.edit_original_response(
