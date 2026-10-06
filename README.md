@@ -131,6 +131,9 @@ python -m src.main
 owkr-gather-bot
 ```
 
+Oracle Cloud 무료 VM에서 24시간 테스트 운영을 준비하려면
+[Oracle Cloud 무료 VM 배포 안내](docs/oracle-free-deployment.md)를 참고하세요.
+
 ## SQLite 데이터
 
 기본 데이터베이스 위치는 현재 작업 디렉터리 기준 `data/owkr-gather-bot.sqlite3`입니다. 경로는 `OWKR_DATABASE_PATH`로 변경할 수 있습니다. `migrations/`의 SQL은 파일명 순서대로 한 번씩 자동 적용됩니다.
