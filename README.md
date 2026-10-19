@@ -1,4 +1,13 @@
-# owkr-gather-bot
+# 시간을달리는소녀 · OWKR Gather Bot
+
+**Discord 내전 모집·참가자 관리 봇** · 개발·테스트 단계
+
+관리자가 내전을 만든다 → 참가자가 ✅로 신청한다 → 티어 안내에 답장한다 → 시작 전 대기실 안내를 받는다.
+
+이 저장소는 봇 소스와 자체 실행 안내를 제공합니다. 공용 봇 초대 서비스나 OWKR Match와의 자동 연동은 제공하지 않습니다.
+
+- [설치](#요구-사항과-설치) · [실행](#실행) · [슬래시 명령어](#슬래시-명령어)
+- [Discord E2E 점검](docs/discord-e2e.md) · [VM 배포 안내](docs/oracle-free-deployment.md)
 
 기존 내전봇의 모집·참가자·티어 수집 기능을 대체하는 Discord 봇 MVP입니다. 현재 구현은 단일 프로세스와 한 길드를 기준으로 하며, 여러 활성 내전을 동시에 운영할 수 있습니다.
 
@@ -440,3 +449,12 @@ python -m src.e2e_preflight
 - 실제 시작·마감 경계와 재시작 시나리오를 확인하기 전 운영 서버에 적용하지 않습니다.
 
 `MatchRepository`와 `SyncSink` 경계 및 `NoOpSyncSink`는 후속 API 연동을 위해 유지합니다.
+
+## 관련 프로젝트
+
+- [OWKR 커뮤니티](https://github.com/Overwatch-KR) · [Discord](https://discord.gg/overwatchkr)
+- [OWKR Match](https://github.com/Overwatch-KR/owkr-balance) — 내전 참가 명단과 팀 편성
+- [Gather Bot](https://github.com/Overwatch-KR/owkr-gather-bot) — Discord 내전 모집과 티어 수집
+- [내전 규정](https://github.com/Overwatch-KR/owkr-docs) — 규정, 참가 안내와 FAQ
+- [관리자 시험](https://github.com/Overwatch-KR/owkr-exam) — 내전 관리자 시험 웹
+- [내전 워크샵](https://github.com/Overwatch-KR/owkr-scrim-workshop) — 준비 중인 OverPy 소스
