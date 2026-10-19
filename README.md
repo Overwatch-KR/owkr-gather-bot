@@ -188,11 +188,11 @@ Guild Voice States는 Privileged Gateway Intent가 아니므로 Developer Portal
 
 OAuth2 URL Generator에서는 `bot`, `applications.commands` scope를 선택하고 관련 채널에 다음 최소 권한을 부여합니다.
 
-- View Channel — 명령·공지·티어·관리자 채널과 설정된 음성 대기실에서 필요
+- View Channel · 명령·공지·티어·관리자 채널과 설정된 음성 대기실에서 필요
 - Send Messages
 - Read Message History
-- Add Reactions — 모집 공지 채널에서 필요
-- Embed Links — 모집 공지 카드 전송에 필요
+- Add Reactions · 모집 공지 채널에서 필요
+- Embed Links · 모집 공지 카드 전송에 필요
 
 `recruitment_role_id`가 실제 알림을 보내려면 해당 역할을 멘션 가능으로 설정하거나, 모집 채널에서 봇 역할에 `Mention @everyone, @here, and All Roles`를 허용해야 합니다. 최소 권한 운영에서는 전용 알림 역할만 멘션 가능으로 설정하는 방식을 권장합니다. 코드는 설정된 역할 ID 하나만 `allowed_mentions.roles`에 포함합니다.
 
@@ -213,11 +213,11 @@ OAuth2 URL Generator에서는 `bot`, `applications.commands` scope를 선택하�
 - `/내전 시간:오후 2시 20분`
 - `/내전 시간:18:20`
 - `/내전 시간:23시`
-- `/티어현황 [내전]` — 활성 내전이 하나면 자동 선택하고, 여러 개면 선택이 필요합니다.
-- `/내전상태 [내전]` — 생략하면 가까운 미래의 활성 목록, 선택하면 시각·상태·참가·대기·티어 현황을 표시합니다.
-- `/내전대타 내전` — 대기열이 비어 있는 모집 완료 내전에 연결된 1명짜리 대타 모집을 엽니다. 첫 ✅ 사용자는 대기열에 등록되고 본인만 멘션된 티어 작성 안내를 받습니다.
-- `/내전취소 내전` — 선택한 내전만 취소합니다.
-- `/공지문구` — 문구 편집과 미리보기를 한 메뉴에서 제공합니다.
+- `/티어현황 [내전]` · 활성 내전이 하나면 자동 선택하고, 여러 개면 선택이 필요합니다.
+- `/내전상태 [내전]` · 생략하면 가까운 미래의 활성 목록, 선택하면 시각·상태·참가·대기·티어 현황을 표시합니다.
+- `/내전대타 내전` · 대기열이 비어 있는 모집 완료 내전에 연결된 1명짜리 대타 모집을 엽니다. 첫 ✅ 사용자는 대기열에 등록되고 본인만 멘션된 티어 작성 안내를 받습니다.
+- `/내전취소 내전` · 선택한 내전만 취소합니다.
+- `/공지문구` · 문구 편집과 미리보기를 한 메뉴에서 제공합니다.
 
 모든 운영 명령은 `admin_user_ids` 또는 `admin_role_ids` 중 하나를 만족하고 `channels.command`에서 실행한 경우에만 처리됩니다. 이는 `app_commands.check` 기반의 봇 내부 검사로, discord.py의 `has_any_role`과 같은 계층에서 동작하지만 YAML 역할 ID와 사용자 예외를 함께 지원합니다. 역할이 없는 사용자가 Discord 명령 목록에서 명령 자체를 보지 못하게 하려면 서버 설정의 **연동 → OWKR Gather Bot → 명령어 권한**에서도 역할과 채널을 제한해야 합니다.
 
@@ -453,8 +453,8 @@ python -m src.e2e_preflight
 ## 관련 프로젝트
 
 - [OWKR 커뮤니티](https://github.com/Overwatch-KR) · [Discord](https://discord.gg/overwatchkr)
-- [OWKR Match](https://github.com/Overwatch-KR/owkr-balance) — 내전 참가 명단과 팀 편성
-- [Gather Bot](https://github.com/Overwatch-KR/owkr-gather-bot) — Discord 내전 모집과 티어 수집
-- [내전 규정](https://github.com/Overwatch-KR/owkr-docs) — 규정, 참가 안내와 FAQ
-- [관리자 시험](https://github.com/Overwatch-KR/owkr-exam) — 내전 관리자 시험 웹
-- [내전 워크샵](https://github.com/Overwatch-KR/owkr-scrim-workshop) — 준비 중인 OverPy 소스
+- [OWKR Match](https://github.com/Overwatch-KR/owkr-balance) · 내전 참가 명단과 팀 편성
+- [Gather Bot](https://github.com/Overwatch-KR/owkr-gather-bot) · Discord 내전 모집과 티어 수집
+- [내전 규정](https://github.com/Overwatch-KR/owkr-docs) · 규정, 참가 안내와 FAQ
+- [관리자 시험](https://github.com/Overwatch-KR/owkr-exam) · 내전 관리자 시험 웹
+- [내전 워크샵](https://github.com/Overwatch-KR/owkr-scrim-workshop) · 준비 중인 OverPy 소스
