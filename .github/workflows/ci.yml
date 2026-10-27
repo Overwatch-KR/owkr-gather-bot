@@ -35,6 +35,9 @@ jobs:
       - name: Install project and test dependencies
         run: python -m pip install -e ".[test]"
 
+      - name: Build public policy pages
+        run: python scripts/build_pages.py
+
       - name: Run tests
         run: python -m pytest
 

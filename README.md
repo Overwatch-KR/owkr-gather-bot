@@ -553,3 +553,9 @@ python -m src.e2e_preflight
 - [내전 규정](https://github.com/Overwatch-KR/owkr-docs) · 규정, 참가 안내와 FAQ
 - [관리자 시험](https://github.com/Overwatch-KR/owkr-exam) · 내전 관리자 시험 웹
 - [내전 워크샵](https://github.com/Overwatch-KR/owkr-scrim-workshop) · 준비 중인 OverPy 소스
+
+## 공개 안내 웹
+
+개인정보처리방침·이용약관·문의·삭제 요청은 GitHub Pages 정적 페이지로 제공합니다.
+현재 정책은 검토 중인 초안이며 최종 정책 URL로 등록하기 전 운영 항목을 확정합니다.
+공개 파일만 배포하며 봇 실행·DB와 분리합니다. [배포·수정·복원 안내](docs/github-pages.md)를 참고하세요.
