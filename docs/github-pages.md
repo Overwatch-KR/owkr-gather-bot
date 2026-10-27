@@ -8,7 +8,7 @@
 - `scripts/build_pages.py`: 위 원본과 문의·목차를 HTML로 변환
 - `site/style.css`: 모든 공개 페이지의 공통 스타일
 - `_site/`: 생성된 배포물. Git에는 포함하지 않음
-- `.github/workflows/pages.yml`: main 변경 또는 main에서 수동 실행 시 배포
+- `.github/workflows/pages.yml`: 모든 main push 또는 main에서 수동 실행 시 배포
 
 공개 페이지는 `index.html`, `privacy.html`, `terms.html`, `contact.html`, `deletion.html`이다. `_site`만 업로드하므로 내부 검토 문서·설정·DB·백업을 배포하지 않는다.
 
@@ -17,7 +17,7 @@ python scripts/build_pages.py
 python -m http.server 8768 --directory _site
 ```
 
-예정 기본 주소는 `https://overwatch-kr.github.io/owkr-gather-bot/`이다. 저장소 Settings → Pages의 Source를 GitHub Actions로 설정한다. main에 반영된 뒤 Public policy pages 작업의 성공과 실제 HTTPS 접근을 확인한다. PR 브랜치는 배포하지 않는다.
+공개 기본 주소는 `https://overwatch-kr.github.io/owkr-gather-bot/`이다. 저장소 Settings → Pages의 Source는 GitHub Actions를 사용한다. main에 반영된 뒤 Public policy pages 작업의 성공과 실제 HTTPS 접근을 확인한다. PR 브랜치는 배포하지 않는다.
 
 ## 초안과 최종 정책
 

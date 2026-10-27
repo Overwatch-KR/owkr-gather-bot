@@ -7,6 +7,8 @@
 ## 자동 검증과 실제 Discord 검증
 
 GitHub Actions CI는 Python 3.13에서 테스트·컴파일·의존성 검사를 수행합니다.
+CI는 main 대상 PR과 수동 실행에서 동작하며 main push에서는 실행하지 않습니다.
+main 반영 시 별도 배포 이미지 빌드와 공개 안내 웹 배포가 실행됩니다.
 토큰·운영 DB 없이 실행하는 검사이며 아래 실제 서버 E2E를 대신하지 않습니다.
 테스트 길드에서 확인한 커밋·시각·실제 참여 계정 수와 결과를 별도로 기록합니다.
 
@@ -66,6 +68,13 @@ owkr-gather-bot-e2e-check
 코드에서 슬래시 명령 이름을 변경한 직후에는 기존 서버 명령과 달라 실패할 수 있습니다. 이 경우 봇을 한 번 실행해 `guild application commands synced` 로그를 확인한 뒤 사전점검을 다시 실행합니다.
 
 ## 2. 봇 실행
+
+Docker에서는 [VM 배포 안내](oracle-free-deployment.md)에 따라 빌드한 뒤 실행합니다.
+최초 실행으로 명령이 등록된 다음 봇을 중지하고 사전점검을 다시 실행합니다.
+테스트 중 `docker compose stop bot`으로 정상 종료하고, 로그에서 종료 오류와
+강제 종료(종료 코드 137)가 없는지 확인합니다. `docker compose start bot` 이후
+참가·대기·티어 상태와 알림 중복을 확인합니다.
+백업·복원은 운영 DB가 아닌 복사본으로 먼저 확인하며 개인정보 삭제 요청도 반영합니다.
 
 ```bash
 OWKR_LOG_LEVEL=DEBUG python -m src.main

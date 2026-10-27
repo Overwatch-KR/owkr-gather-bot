@@ -107,22 +107,18 @@ git clone https://github.com/Overwatch-KR/owkr-gather-bot.git
 cd owkr-gather-bot
 ```
 
-현재 저장소에 Docker 배포 파일이 없다면 실제 실행 전에 다음 파일을 별도 변경으로
-추가한다.
+저장소의 `Dockerfile`, `compose.yaml`, `.dockerignore`를 사용한다.
+Python 3.13, 단일 컨테이너, 자동 재시작, 영구 DB, 읽기 전용 설정·템플릿,
+로그 크기 제한을 포함한다. 실행 파일은 이미지에, 운영 자료는 호스트에 둔다.
+백업은 `scripts/backup.sh`로 정지 후 생성한다.
 
-- `Dockerfile`
-- `compose.yaml`
-- `.dockerignore`
-- SQLite 백업 스크립트
+호스트의 사용자 ID로 컨테이너를 실행한다. 이후 모든 Compose 작업을 같은
+저장소·사용자 환경에서 수행하고 다른 VM이나 로컬 PC에서 같은 봇을 동시에 켜지 않는다.
 
-배포 파일은 다음 조건을 만족해야 한다.
-
-- Python 3.13 이상
-- 봇 컨테이너 한 개만 실행
-- `restart: unless-stopped` 같은 자동 재시작 정책
-- `data/`와 편집 가능한 공지 템플릿의 영구 보존
-- `.env`를 이미지에 복사하지 않고 실행 시 주입
-- SQLite를 여러 컨테이너가 동시에 열지 않음
+```bash
+mkdir -p data backups
+chmod 700 data backups
+```
 
 ## 6. Discord 운영 설정
 
@@ -132,6 +128,9 @@ cd owkr-gather-bot
 cp config/config.example.yaml config/config.yaml
 cp .env.example .env
 chmod 600 .env config/config.yaml
+# 두 값을 .env에 저장한다. 기존 값이 있으면 중복 추가하지 않고 수정한다.
+echo "OWKR_UID=$(id -u)" >> .env
+echo "OWKR_GID=$(id -g)" >> .env
 ```
 
 `config/config.yaml`에 실제 Discord ID를 입력한다. 특히 다음을 확인한다.
@@ -184,8 +183,17 @@ Administrator, Manage Roles, Kick Members와 Ban Members는 주지 않는다. �
 
 ## 8. 읽기 전용 사전점검
 
-봇을 중지한 상태에서 사전점검을 실행한다. Docker 배포 파일이 준비되면 컨테이너
-안에서 다음 엔트리포인트를 실행하도록 구성한다.
+이미지를 먼저 빌드한다. 사전점검은 봇이 중지된 상태에서 실행한다.
+
+```bash
+docker compose build bot
+docker compose run --rm --no-deps bot python -m src.e2e_preflight
+```
+
+첫 설치에서 명령이 아직 등록되지 않아 실패하면, 다른 설정 오류를 먼저 해결하고
+9절처럼 봇을 한 번 실행하여 명령 등록 로그를 확인한다. 그다음 봇을 중지하고 위
+사전점검을 다시 실행한다. 임시 컨테이너의 명령은 점검 도구로 대체되므로 봇을
+추가로 실행하지 않는다. 설치된 점검 명령은 다음과 같다.
 
 ```bash
 owkr-gather-bot-e2e-check
@@ -205,7 +213,31 @@ owkr-gather-bot-e2e-check
 
 ## 9. 봇 실행
 
-Docker 배포 파일이 준비된 뒤 실행한다.
+### main 반영과 배포 이미지
+
+main 대상 PR에서는 CI가 테스트·컴파일·의존성과 Docker 빌드를 검사한다.
+main push에서는 CI를 반복하지 않고 `Bot release image`와 `Public policy pages`를
+실행한다. Pages는 공개 안내 웹만 배포한다. 배포 이미지 워크플로는 Linux amd64용
+이미지·커밋 파일·체크섬을 14일간 아티팩트로 보관하며 실제 봇 서버를 실행하지 않는다.
+
+서버가 준비되면 해당 커밋의 저장소와 운영 설정을 준비한 후, Actions 실행 화면에서
+`bot-image-<커밋 SHA>`를 받아 저장소 루트에 압축 해제하고 다음처럼 사용한다.
+ARM 서버에서는 아래 이미지를 사용하지 않고 서버에서 직접 빌드한다.
+
+```bash
+sha256sum -c SHA256SUMS
+docker load -i owkr-gather-bot.tar.gz
+export OWKR_IMAGE="owkr-gather-bot:$(cat commit.txt)"
+docker compose up -d --no-build bot
+```
+
+체크섬 실패 시 실행하지 않는다. 이후 같은 서버의 작업에도 `OWKR_IMAGE`를 동일하게
+설정해야 하므로 실제 값을 `.env`에도 저장한다. 새 이미지 전환 전에는 13절대로
+백업한다. 이미지 로드만으로 기존 컨테이너가 바뀌지는 않는다.
+
+### 서버에서 직접 빌드
+
+설정·디렉터리 권한과 사전점검 결과를 확인한 뒤 실행한다.
 
 ```bash
 docker compose up -d --build
@@ -268,7 +300,8 @@ docker compose logs --tail=200 bot
 배포할 커밋의 GitHub Actions CI(테스트·컴파일·의존성 검사)가 통과했는지 먼저 확인한다.
 CI는 배포하거나 Discord에 연결하지 않으므로 실제 서버 E2E 결과도 별도로 확인한다.
 
-업데이트 전 DB를 백업한다. 그다음 원격 변경을 가져와 다시 빌드한다.
+업데이트 전 `sh scripts/backup.sh`로 DB·설정·문구를 백업하고 백업 폴더를
+VM 밖으로 복사한다. 배포 커밋도 기록한다. 그다음 원격 변경을 가져와 다시 빌드한다.
 
 ```bash
 git pull --ff-only
@@ -280,27 +313,58 @@ docker compose logs --tail=200 bot
 
 ## 13. 백업
 
-최소 백업 대상:
+백업 명령은 실행 중이던 봇을 중지하고 DB와 설정·문구를 보관한 뒤 다시 켠다.
+이미 중지된 봇은 계속 중지 상태로 둔다. 강제 종료(종료 코드 137)를 발견하면
+자동으로 재개하지 않는다. 로그와 DB 상태를 확인한 후 수동으로 시작한다.
+다른 배포 작업과 동시에 실행하지 않는다.
 
-- `data/owkr-gather-bot.sqlite3`
-- `data/owkr-gather-bot.sqlite3-wal`
-- `data/owkr-gather-bot.sqlite3-shm`
-- `config/config.yaml`
-- 편집된 모집 완료 공지 템플릿과 단순 설정 YAML
+```bash
+sh scripts/backup.sh
+```
 
-처음 운영할 때는 가장 단순하고 안전한 방식으로 봇을 잠깐 멈추고 전체 `data/`와
-설정 파일을 함께 복사한다.
+`backups/backup-<UTC시각>/`에 다음을 보관한다.
+
+- SQLite backup API로 WAL을 합친 단독 DB와 무결성 검사 결과 통과
+- `config/config.yaml`과 `templates/` 전체
+- 생성 시각과 복원 주의사항을 담은 `manifest.json`
+
+실패한 백업 폴더는 지우고 완성된 백업만 남긴다. 토큰이 있는 `.env`는 포함하지
+않으므로 별도 비밀 저장소에서 복구할 수 있도록 준비한다. 백업은 Git과 이미지에서
+제외한다. 백업 주기·보관 기간·암호화·외부 복사 위치를 정하고, 최소한 배포 전과
+내전 준비 후에 실행한다. 봇이 사용하는 실제 경로는 Compose에서 고정하며,
+호스트 `.env`의 경로 재정의는 컨테이너에 적용하지 않는다.
+
+### 복원 연습과 장애 복원
+
+테스트 복사본에서 먼저 연습한다. 운영 복원은 봇을 멈추고 진행한다.
+아래 백업 이름은 실제 폴더로 바꾼다. `data.before-restore`가 이미 있으면 다른
+이름을 사용하고 덮어쓰지 않는다.
 
 ```bash
 docker compose stop bot
-mkdir -p backups/manual-backup
-cp -a data config/config.yaml templates/recruitment_complete.txt templates/recruitment_complete.simple.yaml backups/manual-backup/
-docker compose start bot
+mv data data.before-restore
+mkdir -m 700 data
+cp backups/backup-실제시각/data/owkr-gather-bot.sqlite3 data/
 ```
 
-`manual-backup`은 매번 다른 이름을 사용하고, 같은 VM 안에만 두지 말고 주기적으로
-개인 PC나 별도 저장소로 복사한다. 자동 백업을 추가할 때는 실행 중 DB 파일을 단순
-복사하지 말고 SQLite backup API 또는 안전한 정지·복사 절차를 사용한다.
+기존 WAL·SHM은 새 `data/`로 복사하지 않는다. 백업 DB는 WAL을 합친 파일이다.
+필요할 때만 현재 설정과 문구를 별도 보관한 후 백업본을 복사하고, `.env`의 토큰은
+별도 비밀 저장소에서 준비한다. 호스트 사용자와 `.env`의 UID/GID가 일치하는지 확인한다.
+이전 백업 이후의 개인정보 삭제 요청·수집 중단을 **재시작 전에** 반영한다.
+반영 방법이 불명확하면 봇을 중지한 채 담당자가 확인한다.
+
+DB 검사와 사전점검 후 봇을 시작한다. 검사 컨테이너는 Discord에 연결하지 않는다.
+
+```bash
+docker compose run --rm --no-deps bot python -c 'import sqlite3; c=sqlite3.connect("file:/app/data/owkr-gather-bot.sqlite3?mode=ro", uri=True); result=c.execute("PRAGMA integrity_check").fetchall(); fk=c.execute("PRAGMA foreign_key_check").fetchall(); print(result, fk); raise SystemExit(0 if result == [("ok",)] and not fk else 1)'
+docker compose run --rm --no-deps bot python -m src.e2e_preflight
+docker compose up -d bot
+docker compose logs --tail=200 bot
+```
+
+검사 실패 시 시작하지 않는다. 복원 후 활성 내전·참가·티어 현황과 알림 중복을
+확인한다. 마이그레이션 뒤 이전 코드로 돌아가야 한다면 해당 코드와 호환되는
+배포 전 DB도 함께 복원해야 하며, 코드만 되돌려 실행하지 않는다.
 
 ## 14. 장애 시 대응
 

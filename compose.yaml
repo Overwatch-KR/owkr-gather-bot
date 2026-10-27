@@ -1,0 +1,47 @@
+name: owkr-gather-bot
+services:
+  bot:
+    build: .
+    image: "${OWKR_IMAGE:-owkr-gather-bot:local}"
+    # A fixed name also prevents accidental Compose scaling on this Docker host.
+    container_name: owkr-gather-bot
+    user: "${OWKR_UID:-1000}:${OWKR_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 60s
+    env_file: .env
+    environment:
+      OWKR_CONFIG_PATH: /app/config/config.yaml
+      OWKR_DATABASE_PATH: /app/data/owkr-gather-bot.sqlite3
+      OWKR_TEMPLATE_PATH: /app/templates/recruitment.txt
+      OWKR_RECRUITMENT_COMPLETE_TEMPLATE_PATH: /app/templates/recruitment_complete.txt
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./templates
+        target: /app/templates
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
