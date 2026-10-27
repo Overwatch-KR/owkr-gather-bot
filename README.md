@@ -286,6 +286,24 @@ qtaghdi이며 이메일은 qtaghdi@gmail.com, 보조 경로는 Discord `qtaghdi`
 
 ## 자동 테스트
 
+GitHub Actions의 [CI](https://github.com/Overwatch-KR/owkr-gather-bot/actions/workflows/ci.yml)는
+`main` 대상 PR과 `main` push에서 Ubuntu·Python 3.13으로 아래 필수 검사를 실행합니다.
+기본 브랜치에 반영한 뒤 Actions 화면에서 수동 실행할 수도 있습니다.
+
+- 테스트 의존성까지 설치: `python -m pip install -e ".[test]"`
+- 전체 자동 테스트: `python -m pytest`
+- 소스 컴파일: `python -m compileall src`
+- 의존성 호환성: `python -m pip check`
+
+같은 PR·브랜치의 새 실행이 시작되면 이전 실행을 취소하며 최대 실행 시간은 10분입니다.
+CI는 저장소 읽기 권한만 사용하고 Discord 토큰·운영 설정·운영 DB를 요구하지 않습니다.
+실제 Discord 연결과 서버 E2E는 [별도 점검](docs/discord-e2e.md)으로 진행합니다.
+자동 배포나 병합은 수행하지 않습니다.
+
+CI 통과를 병합 필수 조건으로 사용할 때는 첫 실행을 확인한 후 저장소 규칙에서
+`Python 3.13 checks` 상태 검사를 지정합니다. 워크플로 추가만으로 병합 규칙이
+자동 설정되지는 않습니다.
+
 pytest:
 
 ```bash
