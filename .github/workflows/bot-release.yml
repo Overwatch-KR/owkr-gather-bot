@@ -1,0 +1,52 @@
+name: Bot release image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bot-release-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.ref == 'refs/heads/main'
+    name: Build deployment image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build image for this commit
+        run: docker build --tag "owkr-gather-bot:$GITHUB_SHA" .
+      - name: Check image imports
+        run: docker run --rm "owkr-gather-bot:$GITHUB_SHA" python -c 'import src.main; import src.e2e_preflight; import sqlite3'
+      - name: Export image
+        run: |
+          mkdir -p release
+          docker save "owkr-gather-bot:$GITHUB_SHA" | gzip > release/owkr-gather-bot.tar.gz
+          printf '%s\n' "$GITHUB_SHA" > release/commit.txt
+          cd release
+          sha256sum owkr-gather-bot.tar.gz > SHA256SUMS
+      - name: Save deployment bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bot-image-${{ github.sha }}
+          path: release/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+      - name: Record release status
+        run: |
+          {
+            echo '### 배포 이미지 준비 완료'
+            echo "커밋: $GITHUB_SHA"
+            echo '아티팩트의 이미지는 Linux amd64 서버용이며 14일간 보관합니다.'
+            echo '이 작업은 봇을 실행하지 않습니다. 상시 실행 서버와 운영 설정을 별도로 준비해야 합니다.'
+            echo '실제 배포·백업·복원 절차: docs/oracle-free-deployment.md'
+          } >> "$GITHUB_STEP_SUMMARY"

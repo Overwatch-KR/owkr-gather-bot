@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!pyproject.toml
+!README.md
+!src/
+!src/**
+!migrations/
+!migrations/**
+!scripts/
+!scripts/backup.py
+**/__pycache__/
+**/*.pyc

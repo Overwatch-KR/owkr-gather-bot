@@ -3,11 +3,6 @@ name: Public policy pages
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/legal/**'
-      - 'site/**'
-      - 'scripts/build_pages.py'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:

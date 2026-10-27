@@ -149,6 +149,13 @@ owkr-gather-bot
 Oracle Cloud 무료 VM에서 24시간 테스트 운영을 준비하려면
 [Oracle Cloud 무료 VM 배포 안내](docs/oracle-free-deployment.md)를 참고하세요.
 
+저장소에는 Docker 배포 구성과 정지 후 백업 도구가 포함되어 있습니다.
+서버 준비·권한·최초 명령 등록·백업 복원은 위 안내 순서로 진행합니다.
+Docker에서는 DB를 호스트의 `data/`에, 설정과 공지 문구를 각각 `config/`와
+`templates/`에 보존합니다. 자동 재시작과 로그 크기 제한을 사용하며,
+중지 시 정상 종료를 위해 SIGINT와 최대 60초 대기를 적용합니다.
+실제 서버 배포와 Discord E2E 완료 여부는 별도 기록으로 확인해야 합니다.
+
 ## SQLite 데이터
 
 기본 데이터베이스 위치는 현재 작업 디렉터리 기준 `data/owkr-gather-bot.sqlite3`입니다. 경로는 `OWKR_DATABASE_PATH`로 변경할 수 있습니다. `migrations/`의 SQL은 파일명 순서대로 한 번씩 자동 적용됩니다.
@@ -308,18 +315,26 @@ qtaghdi이며 이메일은 qtaghdi@gmail.com, 보조 경로는 Discord `qtaghdi`
 ## 자동 테스트
 
 GitHub Actions의 [CI](https://github.com/Overwatch-KR/owkr-gather-bot/actions/workflows/ci.yml)는
-`main` 대상 PR과 `main` push에서 Ubuntu·Python 3.13으로 아래 필수 검사를 실행합니다.
+`main` 대상 PR에서 Ubuntu·Python 3.13으로 아래 필수 검사를 실행합니다.
+`main` push에서는 CI를 실행하지 않습니다.
 기본 브랜치에 반영한 뒤 Actions 화면에서 수동 실행할 수도 있습니다.
 
 - 테스트 의존성까지 설치: `python -m pip install -e ".[test]"`
 - 전체 자동 테스트: `python -m pytest`
 - 소스 컴파일: `python -m compileall src`
 - 의존성 호환성: `python -m pip check`
+- Docker 이미지 빌드·실행 파일 import·Compose 설정 검사
 
 같은 PR·브랜치의 새 실행이 시작되면 이전 실행을 취소하며 최대 실행 시간은 10분입니다.
 CI는 저장소 읽기 권한만 사용하고 Discord 토큰·운영 설정·운영 DB를 요구하지 않습니다.
 실제 Discord 연결과 서버 E2E는 [별도 점검](docs/discord-e2e.md)으로 진행합니다.
 자동 배포나 병합은 수행하지 않습니다.
+
+main에 반영하면 별도 `Bot release image` 워크플로가 Linux amd64 배포 이미지를
+빌드하고 `bot-image-<커밋 SHA>` 아티팩트로 14일간 보관합니다. 봇을 상시 실행하는
+작업은 아니며 실제 서버와 설정이 필요합니다. `Public policy pages`도 모든 main
+push에서 실행해 공개 안내 웹을 배포합니다. 자세한 사용법은
+[VM 배포 안내](docs/oracle-free-deployment.md)를 따릅니다.
 
 CI 통과를 병합 필수 조건으로 사용할 때는 첫 실행을 확인한 후 저장소 규칙에서
 `Python 3.13 checks` 상태 검사를 지정합니다. 워크플로 추가만으로 병합 규칙이
