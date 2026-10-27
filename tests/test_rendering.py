@@ -239,7 +239,7 @@ class RenderingTest(unittest.TestCase):
         self.assertNotIn("내전 코드", rendered.content)
         self.assertIn("이 메시지에 답장", rendered.content)
         self.assertIn("**배틀태그 / 탱커 / 딜러 / 힐러**", rendered.content)
-        self.assertIn("골5? / 실2 / 플3!", rendered.content)
+        self.assertIn("뿅뿅이#31243/챔1/챔1/챔1", rendered.content)
         self.assertIn("`!` 자신 있거나 선호하는 포지션", rendered.content)
         self.assertIn("`?` 자신 없거나 거의 하지 않는 포지션", rendered.content)
         self.assertIn("`X` 마이크·브리핑이 어려우면 맨 끝", rendered.content)

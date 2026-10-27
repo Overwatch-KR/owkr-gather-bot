@@ -3,115 +3,113 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OWKR Gather Bot · 개인정보와 최소 권한 검토</title>
+<title>OWKR Gather Bot 개인정보·최소 권한 검토 현황</title>
 <style>
-:root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#182536;font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1120px;margin:auto;padding:48px 24px 80px}h1{font-size:32px;line-height:1.35}h2{font-size:23px;margin:0 0 18px}h3{font-size:18px;color:#365472}a{color:#175b98}code{background:#eef2f6;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}.meta{color:#586778}.card{background:white;border:1px solid #dce3eb;border-radius:12px;padding:26px;margin-top:24px}.note{background:#fff4cf;border-left:4px solid #d99a1c;padding:16px 20px;margin:20px 0}.badge{display:inline-block;border-radius:5px;padding:1px 7px;background:#e6eef6;font-size:13px;font-weight:700}.p0{background:#fee2e2;color:#9e2424}.p1{background:#fff0cf;color:#8a5200}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid #e1e7ee}th{background:#f0f4f8}ul,ol{padding-left:23px}.scroll{overflow-x:auto}details{margin:16px 0}summary{cursor:pointer;font-weight:600}footer{margin-top:32px;color:#586778}@media(max-width:640px){main{padding:24px 14px}.card{padding:18px}h1{font-size:26px}table{min-width:660px}}@media print{body{background:white}.card{break-inside:avoid}main{padding:0}details>*{display:block}}
+*{box-sizing:border-box}body{margin:0;background:#f4f6f9;color:#1b2939;font:16px/1.8 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1080px;margin:auto;padding:40px 24px 70px}h1{font-size:30px}h2{font-size:22px}section{background:white;border:1px solid #dce3eb;border-radius:12px;padding:24px;margin:24px 0}.meta{color:#5e6e80}.note{background:#fff3ce;border-left:4px solid #d3a02c;padding:16px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #dce3eb;padding:12px;text-align:left;vertical-align:top}th{background:#eef3f8}.scroll{overflow:auto}a{color:#175d97}code{overflow-wrap:anywhere}@media(max-width:600px){main{padding:18px 12px}section{padding:16px}table{min-width:650px}}@media print{body{background:white}section{break-inside:avoid}}
 </style>
 </head>
-<body><main>
-<h1>개인정보와 최소 권한 검토</h1>
-<p class="meta">OWKR Gather Bot · 작성·공식 자료 확인: 2026-10-27 KST · 아래 본문은 최초 점검 당시의 기록</p>
-<div class="note"><strong>후속 구현:</strong> 내전 DB 기록은 시작·취소 후 정리하고 경고는 재적 중 보관하도록 결정했다. 관리자 경고 조회·기록·취소·전체삭제, 본인 티어 원문 삭제와 재수집 중단, 정책·문의 안내 설정을 추가했다. 최신 정책과 남은 공개 준비 항목은 <a href="legal/README.md">문서 관리 안내</a>와 저장소 README를 따른다. 아래 미구현·미확정 표시는 최초 점검 시점의 상태이며 현재 상태와 다를 수 있다. 봇 운영·개인정보 보호 담당은 개발자 겸 내전 총관리자 qtaghdi, 기본 문의는 qtaghdi@gmail.com, 보조 문의는 Discord qtaghdi의 DM으로 정했다. 법정 책임자 표시 요건 확인·공개 주소·로그/백업 절차·실제 Discord 검증은 여전히 필요하다.</div>
-<div class="note"><strong>결론:</strong> 기능에 필요한 권한은 이미 좁은 편이다. 우선 관련 채널에만 접근하도록 제한하고, 개인정보 보관·삭제를 마련한다. 가장 큰 권한 축소 후보는 Message Content이지만, 답장·수정·재시작 복구를 검증하기 전에는 끄지 않는다.</div>
-<p>이 문서는 공개 개인정보처리방침이나 심사 통과 보증이 아니다. 저장소의 코드와 문서를 조사한 결과이며 실제 Developer Portal, Discord 역할·채널 설정, 운영 VM·백업 저장소는 확인하지 않았다. 제안은 구현·배포된 동작과 구분한다.</p>
-
-<section class="card"><h2>1. 현재 확인된 데이터 처리</h2>
-<div class="scroll"><table><thead><tr><th>데이터</th><th>현재 목적·저장 위치</th><th>검토 사항</th></tr></thead><tbody>
-<tr><td>사용자 ID·표시 이름, 참가·취소 시각과 순서</td><td>참가·대기 구분과 재시작 복구. SQLite의 roster_entries, reaction_events</td><td>종료 후 보관 필요성, 삭제 요청의 대상 범위</td></tr>
-<tr><td>관리자 ID, 서버·채널·메시지 ID, 내전 일정</td><td>세션 소유·메시지 연결·알림 복구. match_sessions 등</td><td>참가자뿐 아니라 관리자 정보도 처리방침에 포함</td></tr>
-<tr><td>티어 메시지 원문·작성자·메시지 ID·시각</td><td>tier_submissions, tier_message_bindings. 사용자별 최신 제출 원문을 보관</td><td>필요한 내용만 받을 수 있는지, 잘못 입력한 개인정보의 처리, 연결 기록까지 삭제할지</td></tr>
-<tr><td>알림 payload·오류·운영 로그</td><td>notification_outbox와 로그. 사용자·메시지 ID가 포함될 수 있음</td><td>삭제 범위를 주 테이블에 한정하지 않기. 오류·로그의 실제 저장 내용과 보관 기한 확인</td></tr>
-<tr><td>대기실 음성 채널의 사용자 ID</td><td>Guild Voice States로 입장 여부 확인 후 미입장 참가자만 안내</td><td>음성 녹음은 하지 않음. 라이브러리 메모리 캐시의 범위도 영구 저장과 구분해 설명</td></tr>
-<tr><td>DB·설정 백업</td><td>배포 문서에서 VM 밖 별도 복사 권장</td><td>백업 복사본·WAL·보관 기한·암호화·복구 후 삭제 반영</td></tr>
-</tbody></table></div>
-<p>지정 티어 채널에서 참가자·시간 조건에 맞는 메시지를 저장한다. 다만 수신 가능한 데이터와 실제 영구 저장하는 데이터는 다르며, 코드의 채널 필터만으로 Discord 접근 권한 자체가 줄어드는 것은 아니다. 현재 재시작 보완 수집은 티어 채널의 과거 이력을 전체 순회한 뒤 활동 시각을 판별한다.</p>
-<p><strong>확인된 공백:</strong> 종료·취소 내전의 보관 기한과 자동 파기, 개인정보 수정·삭제 요청 경로가 없다. 내전 시작 후 티어 삭제 이벤트는 처리하지 않으며, 시작 전 원문 삭제도 연결 기록·참가 기록·백업까지 지우는 절차는 아니다.</p>
+<body>
+<main>
+<h1>개인정보와 최소 권한 검토 현황</h1>
+<p class="meta">2026-10-27 · 현재 구현과 공개 전 준비 사항</p>
+<div class="note">자동 테스트 통과와 실제 운영 환경의 보호 조치 확인은 별개입니다. 이 문서는 공개 개인정보처리방침이 아니며 <a href="legal/README.md">정책 준비 목록</a>을 따라 최종 문서를 확정합니다.</div>
+<section>
+<h2>1. 현재 반영된 결정</h2>
+<ul>
+<li>담당은 개발자 겸 내전 총관리자 qtaghdi. 기본 문의 qtaghdi@gmail.com, 보조 경로 Discord DM.</li>
+<li>공개 명령은 내전·티어현황·내전대타·내전취소·경고·개인정보 6개. 상태는 티어현황에 통합하고 공지 편집 명령 제거.</li>
+<li>새 티어는 안내 답장만 수집. 기존 메시지 연결·수정·삭제·복구는 보존.</li>
+<li>내전 DB는 운영 중 보관, 시작·취소 후 약 10초 간격 및 재시작 시 관련 기록 정리.</li>
+<li>본인 티어 삭제는 원문·연결 삭제와 현재 내전 재수집 중단. 참가 상태·경고·Discord 원문·로그/백업은 범위 밖.</li>
+<li>경고는 관리자 수동 기록·취소·전체삭제. 재적 중 보관, 탈퇴·재가입 확인 시 이전 기록 정리. 자동 제재 없음.</li>
+<li>대기실 2 자동 배정과 외부 웹 준비 코드 유지. 실제 외부 웹 전송 없음.</li>
+<li>CI는 Python 3.13의 테스트·컴파일·의존성 검사. Discord 연결 E2E는 별도.</li>
+</ul>
 </section>
-
-<section class="card"><h2>2. 구현·운영 전에 결정할 과제</h2>
-<p>P0는 개인정보 대응을 위해 우선 해결할 항목, P1은 권한 축소와 심사 증빙을 위한 후속 검토다. 아래 항목은 모두 미완료다.</p>
-<div class="scroll"><table><thead><tr><th>우선순위</th><th>검토·결정</th><th>완료 기준</th></tr></thead><tbody>
-<tr><td><span class="badge p0">P0</span></td><td>개인정보처리방침과 문의·신고 경로</td><td>운영 주체·연락처·수집 항목·목적·보관·파기·이용자 권리·호스팅/공유 관계·변경일을 실제 운영에 맞춰 공개. Portal에 URL 등록, 봇/안내에서 쉽게 접근</td></tr>
-<tr><td><span class="badge p0">P0</span></td><td>보관 기한과 자동 파기</td><td>티어 원문·참가 이력·연결 기록·알림·로그·백업별 필요 기간 결정. 시작/취소 기준과 정리 실패 시 재시도 정의. 임의의 기간을 정책으로 확정하지 않음</td></tr>
-<tr><td><span class="badge p0">P0</span></td><td>개인정보 수정·삭제 요청</td><td>요청자 확인·접수·처리·완료 안내를 정하고 운영자용 안전한 처리 수단 제공. 진행 중/종료/취소 내전 모두 다룸. 대기자 자동 승격 등 제품 정책은 변경하지 않음</td></tr>
-<tr><td><span class="badge p0">P0</span></td><td>삭제 후 재수집과 백업 복원</td><td>진행 중 Actor·writer·재시작 보완 수집이 삭제 데이터를 다시 만들지 않도록 설계. 백업 복구 후 서비스 재개 전에 삭제 요청 반영. 백업 만료와 실제 삭제의 구분 설명</td></tr>
-<tr><td><span class="badge p0">P0</span></td><td>저장 데이터 보호·사고 대응</td><td>운영 디스크와 백업 암호화, 키 분리·접근자·파일 권한 확인. 접근 차단·토큰 교체·영향 조사·Discord 및 이용자 통지 담당과 절차 정리</td></tr>
-<tr><td><span class="badge p1">P1</span></td><td>최소 수집과 티어 이력 조회 범위</td><td>원문 보관 필요성, 표시 이름 중복, 메시지 연결 이력, 무제한 history 순회를 검토. 생성 시각이 오래됐지만 수집 기간에 수정된 메시지의 복구는 보존</td></tr>
-<tr><td><span class="badge p1">P1</span></td><td>이용약관·지원 안내와 심사 자료</td><td>서비스 범위·관리자 책임·중단·문의·삭제 안내를 정리. 앱 인증, Intent 심사, App Directory 등록은 각각 해당 요건 확인. 개인정보처리방침 의무를 심사까지 미루지 않음</td></tr>
-<tr><td><span class="badge p1">P1</span></td><td>실제 운영·적용 법령 확인</td><td>호스팅 사업자·리전·백업 위치·외부 제공 여부·운영자 연락처 확인. 한국 개인정보보호법 등 적용 범위와 국외 처리/미성년자 관련 고지는 운영 형태에 맞춰 별도 검토</td></tr>
-</tbody></table></div>
-<p>삭제는 모집 취소와 다른 기능이다. 공개 명령을 늘리기 전에 문의 경로와 운영자용 안전장치로 해결 가능한지 검토한다. DB 직접 수정을 이벤트 콜백에 추가하지 않고 coordinator·Actor·PersistenceWriter의 순서를 보존한다.</p>
+<section>
+<h2>2. 처리 정보와 범위</h2>
+<p>사용자 ID·표시 이름, 참가·취소와 반응 순서, 관리자·서버·채널·메시지 식별자와 일정, 티어 원문·연결, 알림 상태·오류, 경고와 중복 방지·취소 기록, 티어 수집 중단 정보를 기능에 필요한 범위에서 처리합니다.</p>
+<p>대기실 입장 사용자 ID를 확인하지만 음성을 녹음·송수신하지 않습니다. API 수신·라이브러리 메모리 캐시와 영구 저장 범위는 구분합니다. 로그에는 식별자가 포함될 수 있으며 토큰·환경 변수 전체·티어 원문을 남기지 않도록 설계합니다.</p>
+<p>안내 예시는 <code>뿅뿅이#31243/챔1/챔1/챔1</code>입니다. 실제 티어를 자동 판정하지 않습니다.</p>
 </section>
-
-<section class="card"><h2>3. 기능을 유지하면서 줄일 수 있는 권한</h2>
-<p>봇 역할의 서버 전체 권한, 채널별 허용·거부, 다른 역할과 @everyone 상속을 함께 확인한다. 초대 링크의 권한 숫자만 줄여서는 실제 접근이 제한되지 않는다. 서버 전체 권한은 최소화하고 지정 채널에서만 필요한 권한을 허용하는 구성을 권장한다.</p>
-<div class="scroll"><table><thead><tr><th>대상</th><th>현재 코드 기준</th><th>권장 범위·축소 가능성</th></tr></thead><tbody>
-<tr><td>View Channel</td><td>명령·모집·티어·관리자·설정된 대기실</td><td>관련 없는 일반 채팅·다른 음성 채널 접근 차단. 채널 덮어쓰기와 역할 상속을 실제 계정으로 확인</td></tr>
-<tr><td>Send Messages</td><td>명령·모집·티어·관리자 텍스트 채널</td><td>해당 채널로 한정. 티어 오류 피드백과 관리자 알림 때문에 전체 제거 불가. 명령 채널 축소는 ephemeral 응답·미리보기까지 별도 검증</td></tr>
-<tr><td>Read Message History</td><td>사전 점검은 명령·모집·티어 채널에서 요구</td><td>모집 공지 fetch와 티어 수정·복구에 유지. 명령 채널은 제거 실험 후보이며 현재 지원 확정 아님. 검증 후 사전 점검 코드·문서도 함께 변경</td></tr>
-<tr><td>Add Reactions</td><td>모집/대타 공지의 첫 ✅와 마지막 이탈 후 재추가</td><td>모집 채널만 허용. 현재 반응 모집 흐름에서는 유지</td></tr>
-<tr><td>Embed Links</td><td>모집 공지 카드</td><td>모집 채널만 허용. 텍스트 공지로 바꾸면 제거 검토 가능하나 공지 표시 변경 필요</td></tr>
-<tr><td>Mention Everyone</td><td>기본 불필요. 설정된 알림 역할이 멘션 불가일 때 권한 대안으로 문서에 언급</td><td>부여하지 않기. 역할 알림이 필요 없으면 recruitment_role_id 미설정. 필요하면 전용 역할만 멘션 가능으로 설정하되 일반 사용자도 그 역할을 멘션할 수 있다는 영향 검토</td></tr>
-<tr><td>음성 채널 권한</td><td>설정된 대기실의 View Channel만 필요</td><td>Connect·Speak·Move Members·음성 관리 권한 불필요. 봇은 음성을 송수신하지 않음</td></tr>
-<tr><td>관리·추방·파일 권한</td><td>기능상 요구하지 않음</td><td>Administrator·Manage Messages·Manage Roles·Manage Channels·Kick/Ban Members·Attach Files 등 부여하지 않기. 봇 자신의 메시지 삭제/자신의 반응 제거에 Manage Messages 추가 불필요</td></tr>
-</tbody></table></div>
-<p>OAuth2 scope는 현재 <code>bot</code>, <code>applications.commands</code>로 유지하고 사용자 계정용 scope를 추가하지 않는다. 봇 운영 명령 실행 자격과 봇 자신의 권한은 별개다. 기존 관리자 ID/역할 검사와 서버 연동 설정의 명령어 제한을 함께 유지한다.</p>
+<section>
+<h2>3. 최소 권한</h2>
+<div class="scroll">
+<table>
+<tr>
+<th>대상</th>
+<th>현재 판단</th>
+</tr>
+<tr>
+<td>채널 보기·전송·이력</td>
+<td>관련 명령·모집·티어·관리자·경고 채널로 제한. 역할·@everyone 상속도 실제 확인.</td>
+</tr>
+<tr>
+<td>반응·Embed</td>
+<td>모집 채널에서 유지. 기본 이모지에 이모지 관리 권한 불필요.</td>
+</tr>
+<tr>
+<td>사용자·역할 멘션</td>
+<td>사용자는 별도 권한 없음. 역할은 멘션 가능 설정 또는 광범위한 멘션 권한 필요. 전용 역할 설정의 일반 사용자 영향 확인.</td>
+</tr>
+<tr>
+<td>광범위한 관리</td>
+<td>Administrator·Manage Messages·Manage Roles·Kick/Ban·전체 멘션 권한을 부여하지 않는 구성이 기본.</td>
+</tr>
+<tr>
+<td>Guild Voice States</td>
+<td>미입장 확정자만 안내하기 위해 유지. 음성 연결·말하기 불필요.</td>
+</tr>
+<tr>
+<td>Message Content</td>
+<td>원문·수정·복구 때문에 유지. 답장 멘션 예외 대체는 실제 E2E 검증 과제.</td>
+</tr>
+<tr>
+<td>Members·Presence</td>
+<td>비활성. 경고 재적은 대상별 REST 조회, 통신·권한 오류 때 기록 보존.</td>
+</tr>
+</table>
+</div>
 </section>
-
-<section class="card"><h2>4. Gateway Intent 축소 판단</h2>
-<div class="scroll"><table><thead><tr><th>Intent</th><th>판단</th><th>이유·축소 조건</th></tr></thead><tbody>
-<tr><td>Guilds</td><td>유지</td><td>서버·채널 정보와 길드 전용 동작</td></tr>
-<tr><td>Guild Messages</td><td>유지</td><td>티어 생성·수정·삭제와 기준 메시지 삭제 이벤트. 내용 접근 권한과는 별개</td></tr>
-<tr><td>Guild Message Reactions</td><td>유지</td><td>✅ 참가·취소. 버튼 참가로 바꾸기 전에는 제거 불가하며 현재 정책에서는 변경 보류</td></tr>
-<tr><td>Guild Voice States</td><td>유지</td><td>미입장 참가자만 안내하는 현재 기능에 필요. 제거하려면 입장 여부 확인을 포기하는 제품 결정 필요. 특권 Intent가 아니며 마이크 권한도 아님</td></tr>
-<tr><td>Message Content</td><td><strong>최우선 제거 검토</strong></td><td>현재 티어 답장·비답장 호환 경로·수정·재시작 보완 수집에 사용. 공식 예외 경로와 복구 호환성을 먼저 검증</td></tr>
-<tr><td>Guild Members / Guild Presences</td><td>계속 비활성</td><td>현재 요청하지 않음. 전체 회원 목록·접속 상태 수집을 새로 추가하지 않음</td></tr>
-</tbody></table></div>
-<h3>Message Content 없이 답장 제출이 가능한가?</h3>
-<p>공식 문서는 일반 봇 메시지에 Discord 답장 기능으로 답장하면서 <strong>답장 멘션이 켜져 있는 경우</strong> 내용 접근 예외를 인정한다. 슬래시 명령 응답에 대한 답장은 이 예외에 포함하지 않는다. 현재 티어 안내는 일반 봇 메시지로 전송되지만, 멘션을 끈 답장·후속 수정·REST 이력 조회까지 지금과 동일하게 동작한다고 단정할 수 없다.</p>
-<ol>
-<li><strong>우선 실험:</strong> 테스트 봇에서 코드와 Portal 양쪽의 Message Content를 끄고 일반 티어 안내 답장의 생성·수정·재시작 복구를 검증한다. 답장 멘션 켬/끔을 각각 확인한다.</li>
-<li><strong>정책과 비교:</strong> 멘션 켬을 필수로 해야 한다면 기존의 단순한 “안내에 답장” 흐름에 새 조건이 생긴다. 자동 저장되지 않을 때 안내할 방법도 필요하다. 비답장 제출 호환 동작을 없애는 결정도 별도로 기록한다.</li>
-<li><strong>실험 실패 시 대안:</strong> 티어 안내의 “티어 작성” 버튼 → 입력창은 광범위한 메시지 내용 접근을 줄일 수 있다. 다만 공식 답장 제출 정책과 수정·삭제·메시지 연결 방식의 변경이므로 별도 제품 결정 후 구현한다. 사용자에게 두 경로를 동시에 권장하지 않는다.</li>
-</ol>
-<p>2026-06-11 공식 안내상 특권 Intent 심사 기준은 설치 서버 전체에서 봇에 접근 가능한 고유 사용자 10,000명이며, 실제 명령 이용자나 내전 참가자 수와 다르다. 통지 후 신청 기간은 90일이고 승인 앱은 매년 재심사 대상이다. 앱 인증과 Intent 심사는 분리되어 있다. 이 기준 미만이어도 개인정보 의무는 유지된다.</p>
+<section>
+<h2>4. 공개·운영 전에 남은 항목</h2>
+<ul>
+<li>공개 HTTPS 정책 주소·시행일과 법정 책임자 표시 요건</li>
+<li>이메일 수신·회신, Discord DM 접근성 확인</li>
+<li>호스팅·리전·백업 위치·접근자와 위탁/국외 처리 사실 확인</li>
+<li>디스크·백업 암호화와 키·접근 통제</li>
+<li>로그·백업 보관 기한, 요청 처리 대장과 복원 전 삭제 반영</li>
+<li>서비스 종료·봇 제거 시 경고를 포함한 DB·복사본 파기</li>
+<li>사고 대응과 이용자·Discord 통지의 담당·실행 절차</li>
+<li>실제 서버의 권한·답장·대타·탈퇴·재시작·삭제 E2E</li>
+</ul>
+<p>30일/180일 보관안은 채택하지 않았습니다. 내전은 시작·취소 후 정리하고 경고는 재적 중 보관합니다. 삭제 이전 백업을 복구해 정보가 되살아나지 않도록 별도 절차가 필요합니다. 봇 DB 정리만으로 기존 백업·로그까지 삭제됐다고 안내하지 않습니다.</p>
 </section>
-
-<section class="card"><h2>5. 검증과 권장 진행 순서</h2>
-<ol>
-<li>실제 Discord 권한·Portal·호스팅·백업 현황을 확인하고 운영자와 문의처를 정한다.</li>
-<li>관련 채널만 허용하고 광범위한 관리·멘션 권한을 제거하는 설정안을 테스트 서버에서 검증한다.</li>
-<li>보관·삭제·복원 정책과 안전한 삭제 처리를 먼저 구현한 뒤 실제 동작에 맞는 처리방침을 공개한다.</li>
-<li>Message Content 없는 답장 흐름을 실험하고, 정책 변경 여부를 결정한다. 실패하면 기존 설정으로 복구한다.</li>
-</ol>
-<details open><summary>권한 축소 실험의 통과 조건</summary><ul>
-<li>모집·대타 공지, Embed, 첫 ✅, 마지막 참가자 이탈 후 ✅ 복구, 자기 메시지 취소 삭제</li>
-<li>티어 답장 멘션 켬/끔, 수정·빈 문자열·삭제·일괄 삭제, 비참가자·봇·다른 채널 메시지</li>
-<li>오프라인 중 제출·수정·삭제, 재시작 후 연결·명단 복구, 오래된 메시지의 기간 내 수정</li>
-<li>중복 이벤트·재시도·동시 반응 순서, 마감·시작 시각 경계, 취소된 내전과 다른 활성 내전의 분리</li>
-<li>미입장 대상만 안내, 음성 채널 접근 실패 시 무차별 멘션 없이 재시도, 미허용 역할·사용자 멘션 차단</li>
-<li>관리자 ephemeral 응답·공지 미리보기·오류 안내, 채널별 실효 권한과 사전 점검 결과 일치</li>
-</ul></details>
-<details><summary>개인정보 삭제 구현의 통과 조건</summary><ul>
-<li>진행 중·시작 후·취소 후 요청, 반복 요청, 삭제 처리 중 이벤트 도착과 중단·재시작</li>
-<li>원문뿐 아니라 사용자 연결·참가·반응·알림 payload·로그·백업의 처리 범위 확인</li>
-<li>타 사용자와 다른 내전의 기록 보존, 삭제 후 대기자 자동 승격 없음</li>
-<li>백업 복구와 보완 수집 이후 삭제한 데이터가 재등장하지 않음</li>
-</ul></details>
-<p>구현 변경 시 <code>python -m pytest</code>, <code>python -m compileall src</code>, <code>python -m pip check</code>를 실행한다. 흐름·운영 정책 변경 시 README와 Discord E2E 문서도 함께 갱신한다. 이 검토 기록 자체는 봇 코드나 실제 권한·정책을 변경하지 않는다.</p>
+<section>
+<h2>5. 복구·심사 관련 한계</h2>
+<p>재시작 티어 수집은 현재 채널 이력을 전체 순회합니다. 기간 내 수정된 오래된 메시지 복구를 유지하며 범위를 줄일 수 있는지 검토합니다. Discord 전송 성공과 DB 기록 사이 실패에서 알림 재전송 가능성이 남습니다.</p>
+<p>특권 Intent 심사는 앱 인증과 별개입니다. 공식 2026-06-11 안내 기준 접근 가능한 고유 사용자 10,000명에 도달하면 심사 대상이며 실제 신청 때 최신 기준을 재확인합니다. 개인정보 의무를 심사까지 미루지 않습니다.</p>
 </section>
-
-<section class="card"><h2>6. 확인 근거</h2>
-<h3>저장소</h3><ul>
-<li><code>src/adapters/discord_adapter.py</code>: Intent, 멘션 제한, 음성 입장 확인, 메시지 수집·수정·삭제·재시작 이력 조회</li>
-<li><code>src/e2e_preflight.py</code>: 현재 채널별 필수 권한 검사</li>
-<li><code>src/application/tier_collector.py</code>, <code>src/infrastructure/sqlite_repository.py</code>, <code>migrations/*.sql</code>: 수집 조건·원문·연결·참가 이력과 삭제 경계</li>
-<li><code>README.md</code>, <code>docs/oracle-free-deployment.md</code>: 현재 권한·운영·백업 안내</li>
-</ul><h3>Discord 공식 자료</h3><ul>
-<li><a href="https://support-dev.discord.com/hc/en-us/articles/8562894815383-Discord-Developer-Terms-of-Service">Developer Terms §5</a>: 공개 처리방침과 Portal/앱 접근성, 수정·삭제 요청, 불필요 데이터 삭제, 저장 암호화·사고 대응</li>
-<li><a href="https://docs.discord.com/developers/topics/permissions">Permissions</a>: 서버 역할과 채널별 권한 구조</li>
-<li><a href="https://docs.discord.com/developers/gateway/you-might-not-need-a-privileged-intent">You Might Not Need a Privileged Intent</a>: 답장 멘션 예외와 버튼·입력창 대안</li>
-<li><a href="https://support-dev.discord.com/hc/en-us/articles/40281523410967-Changes-to-Privileged-Intent-Access-for-Discord-Apps">Changes to Privileged Intent Access</a>: 사용자 기준·신청 기간·연례 재심사·앱 인증 분리</li>
-</ul><p>공식 자료는 작성일 기준이며, 실제 신청·공개 시 최신 요건과 운영 사실을 다시 확인한다.</p></section>
-<footer>미확정 결정: 보관 기간 · 운영자 연락처 · 호스팅/백업 위치 · 삭제 처리 절차 · Message Content 제거 여부</footer>
-</main></body></html>
+<section>
+<h2>6. 근거와 후속 문서</h2>
+<ul>
+<li>
+<a href="../README.md">README</a> · <a href="owkr-gather-bot-mvp-design-v2.html">현재 설계</a> · <a href="discord-e2e.md">E2E</a> · <a href="oracle-free-deployment.md">배포·복원</a>
+</li>
+<li>
+<a href="legal/privacy.md">처리방침 초안</a> · <a href="legal/support.md">문의·요청 안내</a>
+</li>
+<li>
+<a href="https://support-dev.discord.com/hc/en-us/articles/8562894815383-Discord-Developer-Terms-of-Service">Discord Developer Terms §5</a>
+</li>
+<li>
+<a href="https://docs.discord.com/developers/topics/permissions">Discord 권한</a> · <a href="https://docs.discord.com/developers/gateway/you-might-not-need-a-privileged-intent">Intent 대안</a>
+</li>
+<li>
+<a href="https://support-dev.discord.com/hc/en-us/articles/40281523410967-Changes-to-Privileged-Intent-Access-for-Discord-Apps">특권 Intent 심사 변경</a>
+</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
