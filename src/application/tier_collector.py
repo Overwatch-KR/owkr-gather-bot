@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from src.domain.clock import Clock
 from src.domain.models import MatchSession, TierMessageBinding, TierSubmission
-from src.ports.repositories import MatchRepository
+from src.ports.repositories import TierRepository
 
 
 class TierRouteStatus(StrEnum):
@@ -31,7 +31,7 @@ class TierRouteResult:
 class TierCollector:
     def __init__(
         self,
-        repository: MatchRepository,
+        repository: TierRepository,
         clock: Clock,
     ) -> None:
         self._repository = repository

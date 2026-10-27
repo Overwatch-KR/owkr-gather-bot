@@ -1,3 +1,4 @@
+"""내전별 반응 수신 순서와 참가 상태를 관리한다. DB 커밋은 writer에 위임한다."""
 from __future__ import annotations
 
 import asyncio
@@ -15,8 +16,7 @@ from src.domain.models import (
     RosterStatus,
     WaitlistReason,
 )
-from src.infrastructure.persistence_writer import PersistenceWriter
-
+from src.ports.persistence import MutationWriter
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +26,12 @@ class _Stop:
 
 
 class SessionActor:
+    """한 내전의 이벤트를 직렬 처리한다. 다른 내전의 생명주기는 coordinator가 맡는다."""
     def __init__(
         self,
         session: MatchSession,
         roster: list[RosterEntry],
-        writer: PersistenceWriter,
+        writer: MutationWriter,
         reserve_confirmation: (
             Callable[[MatchSession, int], Awaitable[str | None]] | None
         ) = None,
@@ -57,6 +58,7 @@ class SessionActor:
             self._task = asyncio.create_task(self._run(), name=f"session-actor:{self.session.id}")
 
     def ingest(self, event: ReactionEvent) -> bool:
+        """수신 순서대로 접수한다. True는 큐 접수이며 DB 기록 성공을 뜻하지 않는다."""
         if (
             not self._accepting
             or event.match_id != self.session.id
@@ -67,9 +69,11 @@ class SessionActor:
         return True
 
     async def drain(self) -> None:
+        """접수된 반응 처리를 기다린다. 영속화까지 기다리려면 writer.flush도 필요하다."""
         await self._queue.join()
 
     async def stop(self, *, discard: bool = False) -> None:
+        """일반 종료·시작은 큐를 비우고, 취소된 내전은 대기 이벤트를 버린다."""
         self._accepting = False
         if self._task is None:
             return
@@ -188,6 +192,7 @@ class SessionActor:
                 outcome = "DUPLICATE_ADD"
             else:
                 can_confirm = (
+                    # 한 번 정원이 찬 이력은 취소 이후에도 유지한다. 자동 승격을 막는 정책이다.
                     self.session.full_reached_at is None
                     and len(self.current_confirmed()) < self.session.participant_limit
                 )

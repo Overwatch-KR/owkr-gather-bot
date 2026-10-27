@@ -4,11 +4,10 @@ import asyncio
 import logging
 
 from src.domain.clock import Clock
-from src.infrastructure.persistence_writer import PersistenceWriter
-from src.ports.repositories import MatchRepository
+from src.ports.persistence import MutationWriter
+from src.ports.repositories import NotificationRepository
 
 from .coordinator import SessionCoordinator
-
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +16,8 @@ class MatchScheduler:
     def __init__(
         self,
         coordinator: SessionCoordinator,
-        repository: MatchRepository,
-        writer: PersistenceWriter,
+        repository: NotificationRepository,
+        writer: MutationWriter,
         clock: Clock,
         *,
         interval_seconds: float = 10.0,
