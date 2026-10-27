@@ -334,6 +334,30 @@ sh scripts/backup.sh
 내전 준비 후에 실행한다. 봇이 사용하는 실제 경로는 Compose에서 고정하며,
 호스트 `.env`의 경로 재정의는 컨테이너에 적용하지 않는다.
 
+### 매일 자동 백업
+
+Ubuntu의 systemd 예시를 `deploy/systemd/`에 제공한다. 기본 경로는
+`/home/ubuntu/owkr-gather-bot`이며, 다른 위치에 설치했다면 service 파일의
+`WorkingDirectory`와 `ExecStart`를 함께 수정한다. 서비스는 Docker에 접근할 수 있는
+root로 실행하고, 백업 컨테이너는 Compose에 지정된 UID/GID로 파일을 만든다.
+
+먼저 수동 백업과 복원 연습을 마친 후 설치한다.
+
+```bash
+sudo install -m 644 deploy/systemd/owkr-backup.service /etc/systemd/system/
+sudo install -m 644 deploy/systemd/owkr-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now owkr-backup.timer
+sudo systemctl list-timers owkr-backup.timer
+sudo journalctl -u owkr-backup.service --no-pager -n 50
+```
+
+한국 시간 매일 오전 6시에 실행하며, VM이 꺼져 있어 놓친 백업은 다시 켜졌을 때
+실행한다. 실행 중인 봇은 백업하는 동안 잠시 멈추고 정상 백업 후 다시 시작한다.
+이 타이머는 봇의 운영 시간을 제한하지 않는다. 배포나 수동 백업과 동시에 실행하지
+않는다. 자동 파기와 VM 밖 복사는 수행하지 않으므로 보관 기한에 맞는 정리 및
+외부 복사를 별도로 수행한다. VM 내부 백업만으로 VM 회수·삭제에 대비할 수 없다.
+
 ### 복원 연습과 장애 복원
 
 테스트 복사본에서 먼저 연습한다. 운영 복원은 봇을 멈추고 진행한다.
