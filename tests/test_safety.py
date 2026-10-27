@@ -164,13 +164,16 @@ class SafetyTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_privacy_registration_and_intents_need_no_member_access(self):
         from src.adapters.discord_adapter import GatherBot
+        from src.application.runtime import ApplicationRuntime
 
         bot = GatherBot(
-            config=self.config, repository=self.repo, writer=MagicMock(),
-            coordinator=MagicMock(), tier_collector=MagicMock(), scheduler=MagicMock(),
-            clock=self.clock, template_path=Path('templates/recruitment.txt'),
-            recruitment_complete_template_path=Path('templates/recruitment_complete.txt'),
-            migration_path=self.migration,
+            config=self.config,
+            runtime=ApplicationRuntime(
+                repository=self.repo, writer=MagicMock(), coordinator=MagicMock(),
+                tier_collector=MagicMock(), scheduler=MagicMock(),
+                safety=self.service, migration_path=self.migration,
+            ),
+            clock=self.clock,
         )
         self.assertFalse(bot.intents.members)
         self.assertFalse(bot.intents.presences)

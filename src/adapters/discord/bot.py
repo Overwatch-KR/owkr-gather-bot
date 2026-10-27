@@ -1,46 +1,33 @@
-"""Discord 클라이언트. 명령·화면·이벤트·전송 구현은 책임별 모듈에 둔다."""
+"""Discord 연결·명령 등록·재연결 후 티어 보완 수집을 담당한다."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 
 import discord
 from discord.ext import commands
 
-from src.application.coordinator import SessionCoordinator
-from src.application.notification_worker import NotificationWorker
-from src.application.recruitment import RecruitmentService
-from src.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer
-from src.application.scheduler import MatchScheduler
-from src.application.tier_collector import TierCollector
+from src.adapters.safety_adapter import SafetyCog
+from src.application.runtime import ApplicationRuntime
 from src.config import AppConfig
 from src.domain.clock import Clock
-from src.infrastructure.persistence_writer import PersistenceWriter
-from src.ports.repositories import MatchRepository
 
 from .commands import GatherCog
 from .common import _normalized_command_payload
-from .transport import DiscordNotificationTransport, DiscordRecruitmentPublisher
 
 logger = logging.getLogger(__name__)
 
 
 class GatherBot(commands.Bot):
+    """Discord 연결을 소유하고 서비스 생명주기는 ApplicationRuntime에 위임한다."""
+
     def __init__(
         self,
         *,
         config: AppConfig,
-        repository: MatchRepository,
-        writer: PersistenceWriter,
-        coordinator: SessionCoordinator,
-        tier_collector: TierCollector,
-        scheduler: MatchScheduler,
+        runtime: ApplicationRuntime,
         clock: Clock,
-        template_path: Path,
-        recruitment_complete_template_path: Path,
-        migration_path: Path,
     ) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
@@ -52,17 +39,12 @@ class GatherBot(commands.Bot):
             command_prefix=commands.when_mentioned, intents=intents, help_command=None
         )
         self.app_config = config
-        self.repository = repository
-        self.writer = writer
-        self.coordinator = coordinator
-        self.tier_collector = tier_collector
-        self.scheduler = scheduler
+        self.runtime = runtime
+        self.coordinator = runtime.coordinator
+        self.tier_collector = runtime.tier_collector
         self.clock = clock
-        self.template_path = template_path
-        self.recruitment_complete_template_path = recruitment_complete_template_path
-        self.migration_path = migration_path
-        self.notification_worker: NotificationWorker | None = None
         self._caught_up = False
+        self._catch_up_task: asyncio.Task[None] | None = None
         if config.channels.command == config.channels.announcement:
             logger.warning(
                 "command and announcement channel IDs are identical; "
@@ -72,51 +54,27 @@ class GatherBot(commands.Bot):
             )
 
     async def setup_hook(self) -> None:
-        from src.adapters.safety_adapter import SafetyCog
-        from src.application.safety import SafetyService
-
-        await self.repository.initialize(self.migration_path)
-        self.writer.start()
-        await self.coordinator.restore()
-        safety = SafetyService(self.repository, self.clock, self.app_config.guild_id)
-        await safety.purge_closed()
-        await self.add_cog(SafetyCog(self, self.app_config, safety))
+        # routing이 복구되기 전에 이벤트·알림 처리를 시작하지 않는다.
+        if self.runtime.recruitment is None:
+            raise RuntimeError("recruitment service is not configured")
+        await self.runtime.start_storage()
+        await self.add_cog(SafetyCog(self, self.app_config, self.runtime.safety))
         await self.add_cog(
             GatherCog(
                 self,
                 self.app_config,
-                self.repository,
-                self.writer,
+                self.runtime.repository,
+                self.runtime.writer,
                 self.coordinator,
                 self.tier_collector,
                 self.clock,
-                RecruitmentService(
-                    self.coordinator,
-                    DiscordRecruitmentPublisher(
-                        self,
-                        self.app_config,
-                        RecruitmentTemplateRenderer(
-                            self.app_config, self.template_path
-                        ),
-                    ),
-                ),
+                self.runtime.recruitment,
             )
         )
         guild = discord.Object(id=self.app_config.guild_id)
         self.tree.copy_global_to(guild=guild)
         await self._sync_guild_commands_if_changed(guild)
-        self.notification_worker = NotificationWorker(
-            self.repository,
-            self.coordinator,
-            NotificationRenderer(
-                self.app_config,
-                self.recruitment_complete_template_path,
-            ),
-            DiscordNotificationTransport(self),
-            self.clock,
-        )
-        await self.notification_worker.start()
-        self.scheduler.start()
+        await self.runtime.start_workers()
 
     async def _sync_guild_commands_if_changed(self, guild: discord.Object) -> None:
         local_payloads = [
@@ -149,9 +107,16 @@ class GatherBot(commands.Bot):
         logger.info("bot ready user_id=%s", self.user.id if self.user else None)
         if not self._caught_up:
             self._caught_up = True
-            asyncio.create_task(
-                self._catch_up_tier_messages(), name="tier-message-catch-up"
+            self._catch_up_task = asyncio.create_task(
+                self._run_tier_catch_up(),
+                name="tier-message-catch-up",
             )
+
+    async def _run_tier_catch_up(self) -> None:
+        try:
+            await self._catch_up_tier_messages()
+        except Exception:
+            logger.exception("tier message catch-up failed")
 
     async def _catch_up_tier_messages(self) -> None:
         sessions = [
@@ -177,10 +142,8 @@ class GatherBot(commands.Bot):
                 return
         if not isinstance(channel, discord.TextChannel):
             return
-        # A message created before recruitment completion can still qualify when it was
-        # actually edited inside the collection window. Discord history filters by the
-        # message creation snowflake, so startup recovery must scan the channel once and
-        # apply the activity timestamp boundary locally.
+        # Discord 이력은 생성 시각으로 필터링한다. 모집 완료 전 메시지도 수집 기간에
+        # 수정됐다면 대상이므로 채널을 한 번 읽고 실제 활동 시각으로 판정한다.
         async for message in channel.history(
             limit=None, before=before, oldest_first=False
         ):
@@ -207,11 +170,12 @@ class GatherBot(commands.Bot):
             )
 
     async def close(self) -> None:
+        # Cog의 유지보수 작업부터 멈춰 DB 종료 후 쓰기가 발생하지 않게 한다.
         await self.remove_cog("SafetyCog")
-        await self.scheduler.stop()
-        if self.notification_worker is not None:
-            await self.notification_worker.stop()
-        await self.coordinator.stop()
-        await self.writer.stop()
-        await self.repository.close()
+        await self.remove_cog("GatherCog")
+        if self._catch_up_task is not None:
+            self._catch_up_task.cancel()
+            await asyncio.gather(self._catch_up_task, return_exceptions=True)
+            self._catch_up_task = None
+        await self.runtime.stop()
         await super().close()

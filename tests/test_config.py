@@ -263,22 +263,12 @@ class RuntimeConfigTest(unittest.TestCase):
             dotenv_loaded=True,
             working_directory=self.root,
         )
-        targets = (
-            "SQLiteMatchRepository",
-            "PersistenceWriter",
-            "SystemClock",
-            "SessionCoordinator",
-            "TierCollector",
-            "MatchScheduler",
-            "GatherBot",
-        )
-        patches = [patch(f"src.main.{target}") for target in targets]
-        started = [item.start() for item in patches]
-        self.addCleanup(lambda: [item.stop() for item in reversed(patches)])
-        with patch("src.main.load_runtime_config", return_value=runtime):
+        with patch("src.main.load_runtime_config", return_value=runtime), \
+                patch("src.main.build_bot") as build_bot:
             with self.assertLogs("src.main", level="INFO") as captured:
                 main()
 
         logs = "\n".join(captured.output)
         self.assertNotIn(secret, logs)
-        started[-1].return_value.run.assert_called_once_with(secret, log_handler=None)
+        build_bot.assert_called_once_with(runtime)
+        build_bot.return_value.run.assert_called_once_with(secret, log_handler=None)
