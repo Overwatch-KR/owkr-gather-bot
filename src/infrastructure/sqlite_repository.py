@@ -31,6 +31,7 @@ from src.domain.models import (
 )
 from src.domain.match_code import deterministic_match_code
 from src.ports.repositories import MatchRepository
+from src.domain.warnings import WarningReason, WarningSummary
 
 
 logger = logging.getLogger(__name__)
@@ -197,6 +198,110 @@ class SQLiteMatchRepository(MatchRepository):
         if self._connection is not None:
             await self._connection.close()
             self._connection = None
+
+    async def purge_closed_matches(self, guild_id: int) -> int:
+        # Only terminal rows: live Actors and their writer mutations remain untouched.
+        async with self._write_lock:
+            await self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                await self.connection.execute(
+                    """UPDATE roster_entries SET conflict_match_id = NULL
+                    WHERE conflict_match_id IN (
+                        SELECT id FROM match_sessions
+                        WHERE guild_id = ? AND status IN ('STARTED', 'CANCELED')
+                    )""", (guild_id,),
+                )
+                cursor = await self.connection.execute(
+                    "DELETE FROM match_sessions WHERE guild_id = ? "
+                    "AND status IN ('STARTED', 'CANCELED')", (guild_id,),
+                )
+                await self.connection.commit()
+                return cursor.rowcount
+            except BaseException:
+                await self.connection.rollback()
+                raise
+
+    async def warning_summary(self, guild_id: int, user_id: int) -> WarningSummary:
+        rows = await self._fetchall(
+            "SELECT reason, COUNT(*) AS count FROM warnings "
+            "WHERE guild_id = ? AND user_id = ? AND revoked_at_utc IS NULL GROUP BY reason",
+            (guild_id, user_id),
+        )
+        counts = {str(row['reason']): int(row['count']) for row in rows}
+        return WarningSummary(counts.get('노쇼', 0), counts.get('비매너', 0))
+
+    async def add_warning(self, guild_id: int, user_id: int, reason: WarningReason,
+                          manager_id: int, request_id: int, now: datetime) -> None:
+        reason = WarningReason(reason)
+        await self._execute_write(
+            "INSERT INTO warnings (guild_id, user_id, reason, manager_user_id, "
+            "request_id, created_at_utc) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(request_id) DO NOTHING",
+            (guild_id, user_id, reason.value, manager_id, request_id, _to_db(now)),
+        )
+
+    async def latest_warning(self, guild_id: int, user_id: int,
+                             reason: WarningReason) -> int | None:
+        row = await self._fetchone(
+            "SELECT id FROM warnings WHERE guild_id = ? AND user_id = ? "
+            "AND reason = ? AND revoked_at_utc IS NULL ORDER BY id DESC LIMIT 1",
+            (guild_id, user_id, WarningReason(reason).value),
+        )
+        return int(row['id']) if row else None
+
+    async def revoke_warning(self, guild_id: int, user_id: int, warning_id: int,
+                             now: datetime) -> bool:
+        async with self._write_lock:
+            cursor = await self.connection.execute(
+                "UPDATE warnings SET revoked_at_utc = ? WHERE id = ? AND guild_id = ? "
+                "AND user_id = ? AND revoked_at_utc IS NULL",
+                (_to_db(now), warning_id, guild_id, user_id),
+            )
+            await self.connection.commit()
+            return cursor.rowcount == 1
+
+    async def warning_user_ids(self, guild_id: int) -> list[int]:
+        rows = await self._fetchall(
+            "SELECT DISTINCT user_id FROM warnings WHERE guild_id = ? ORDER BY user_id",
+            (guild_id,),
+        )
+        return [int(row['user_id']) for row in rows]
+
+    async def delete_user_warnings(self, guild_id: int, user_id: int) -> None:
+        await self._execute_write(
+            "DELETE FROM warnings WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
+        )
+
+    async def erase_user_tiers(self, guild_id: int, user_id: int) -> None:
+        async with self._write_lock:
+            await self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                # Persist opt-outs before removing bindings, so history recovery and
+                # in-flight upserts cannot collect the same user's messages again.
+                await self.connection.execute(
+                    """INSERT OR IGNORE INTO tier_collection_opt_outs (match_id, user_id)
+                    SELECT m.id, ? FROM match_sessions m JOIN roster_entries r ON r.match_id = m.id
+                    WHERE m.guild_id = ? AND r.discord_user_id = ?
+                    AND m.status IN ('CREATED', 'RECRUITING', 'FULL')""",
+                    (user_id, guild_id, user_id),
+                )
+                for table in ('tier_submissions', 'tier_message_bindings'):
+                    await self.connection.execute(
+                        f"DELETE FROM {table} WHERE discord_user_id = ? AND match_id IN "
+                        "(SELECT id FROM match_sessions WHERE guild_id = ?)",
+                        (user_id, guild_id),
+                    )
+                await self.connection.commit()
+            except BaseException:
+                await self.connection.rollback()
+                raise
+
+    async def purge_previous_membership(self, guild_id: int, user_id: int,
+                                        joined_at: datetime) -> None:
+        await self._execute_write(
+            "DELETE FROM warnings WHERE guild_id = ? AND user_id = ? AND created_at_utc < ?",
+            (guild_id, user_id, _to_db(joined_at)),
+        )
 
     async def create_match(self, session: MatchSession) -> None:
         async with self._write_lock:
@@ -598,6 +703,8 @@ class SQLiteMatchRepository(MatchRepository):
         discord_user_id: int,
         activity_at: datetime,
     ) -> bool:
+        if await self.tier_collection_disabled(session.id, discord_user_id):
+            return False
         if session.accepts_tier_activity_at(activity_at):
             return True
         if not session.accepts_activity_at(activity_at):
@@ -620,6 +727,12 @@ class SQLiteMatchRepository(MatchRepository):
             ),
         )
         return row is not None
+
+    async def tier_collection_disabled(self, match_id: str, user_id: int) -> bool:
+        return await self._fetchone(
+            "SELECT 1 FROM tier_collection_opt_outs WHERE match_id = ? AND user_id = ?",
+            (match_id, user_id),
+        ) is not None
 
     async def get_tier_binding(
         self,

@@ -47,6 +47,22 @@ class RuntimeConfigTest(unittest.TestCase):
         )
         self.assertNotIn("dotenv-secret", repr(runtime))
 
+    def test_policy_links_and_warning_channel_are_optional_and_validated(self) -> None:
+        from src.config import load_app_config
+
+        path = self.root / "config" / "config.yaml"
+        source = path.read_text(encoding="utf-8")
+        config = load_app_config(path)
+        self.assertEqual(config.channels.warning, 1360514209686753290)
+        self.assertIsNone(config.policy.privacy_url)
+        path.write_text(source.replace("privacy_url: null", "privacy_url: https://example.com/privacy"))
+        self.assertEqual(load_app_config(path).policy.privacy_url, "https://example.com/privacy")
+        path.write_text(source.replace("privacy_url: null", "privacy_url: http://example.com/privacy"))
+        with self.assertRaises(ValueError):
+            load_app_config(path)
+        path.write_text(source.replace('  warning: "1360514209686753290"\n', ''))
+        self.assertIsNone(load_app_config(path).channels.warning)
+
     def test_recruitment_role_id_is_loaded_as_a_snowflake(self) -> None:
         config_path = self.root / "config" / "config.yaml"
         config_path.write_text(

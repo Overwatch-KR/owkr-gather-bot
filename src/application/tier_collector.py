@@ -17,6 +17,7 @@ class TierRouteStatus(StrEnum):
     CLOSED = "CLOSED"
     INVALID_FORMAT = "INVALID_FORMAT"
     BOUND_TO_OTHER_USER = "BOUND_TO_OTHER_USER"
+    COLLECTION_DISABLED = "COLLECTION_DISABLED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +109,8 @@ class TierCollector:
                 or channel_id != session.tier_channel_id
             ):
                 return TierRouteResult(TierRouteStatus.IGNORED)
+            if await self._repository.tier_collection_disabled(session.id, discord_user_id):
+                return TierRouteResult(TierRouteStatus.COLLECTION_DISABLED, session)
             if not await self._repository.is_tier_activity_allowed(
                 session.id,
                 discord_user_id,

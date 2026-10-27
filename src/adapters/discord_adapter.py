@@ -720,7 +720,7 @@ class CancelMatchConfirmationView(discord.ui.View):
         await interaction.edit_original_response(
             content=(
                 "내전은 취소했지만 일부 봇 메시지를 지우지 못했습니다. "
-                "봇의 메시지 관리 권한을 확인해 주세요."
+                "봇의 채널 보기·메시지 기록 보기 권한을 확인하고 남은 메시지를 직접 정리해 주세요."
             ),
             view=None,
             allowed_mentions=allowed_mentions_for([]),
@@ -1816,6 +1816,8 @@ class GatherCog(commands.Cog):
             content = "해당 내전의 참가자 또는 대기자가 아니어서 티어를 저장하지 않았습니다."
         elif result.status is TierRouteStatus.CLOSED:
             content = "해당 내전은 티어 작성 시간이 마감되어 저장하지 않았습니다."
+        elif result.status is TierRouteStatus.COLLECTION_DISABLED:
+            content = "티어 삭제 요청으로 이 내전의 수집이 중단되어 있습니다. 진행 방법은 내전 관리자에게 문의해 주세요."
         elif result.status is TierRouteStatus.BOUND_TO_OTHER_USER:
             content = "이 티어 메시지는 다른 작성자에게 귀속되어 수정할 수 없습니다."
         if content is None:
@@ -1878,9 +1880,15 @@ class GatherBot(commands.Bot):
             )
 
     async def setup_hook(self) -> None:
+        from src.adapters.safety_adapter import SafetyCog
+        from src.application.safety import SafetyService
+
         await self.repository.initialize(self.migration_path)
         self.writer.start()
         await self.coordinator.restore()
+        safety = SafetyService(self.repository, self.clock, self.app_config.guild_id)
+        await safety.purge_closed()
+        await self.add_cog(SafetyCog(self, self.app_config, safety))
         await self.add_cog(
             GatherCog(
                 self,
@@ -1990,6 +1998,7 @@ class GatherBot(commands.Bot):
             )
 
     async def close(self) -> None:
+        await self.remove_cog("SafetyCog")
         await self.scheduler.stop()
         if self.notification_worker is not None:
             await self.notification_worker.stop()

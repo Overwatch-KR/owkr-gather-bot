@@ -5,6 +5,14 @@ channels:
   announcement: "123456789012345680"
   tier: "123456789012345681"
   admin: "123456789012345682"
+  # 기존 경고 전용 채널. null이면 경고 명령을 거부합니다.
+  warning: "1360514209686753290"
+
+policy:
+  # 최종 공개 후 HTTPS 주소와 실제 문의 경로를 입력합니다.
+  privacy_url: null
+  terms_url: null
+  support_contact: null
 
 admin_user_ids:
   - "123456789012345683"

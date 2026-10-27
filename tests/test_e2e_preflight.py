@@ -42,6 +42,8 @@ class E2EPreflightTest(unittest.TestCase):
             "내전대타",
             "내전취소",
             "공지문구",
+            "경고",
+            "개인정보",
         }
 
         results = slash_command_checks(names)
