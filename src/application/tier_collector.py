@@ -12,10 +12,8 @@ from src.ports.repositories import MatchRepository
 class TierRouteStatus(StrEnum):
     ACCEPTED = "ACCEPTED"
     IGNORED = "IGNORED"
-    AMBIGUOUS = "AMBIGUOUS"
     NOT_PARTICIPANT = "NOT_PARTICIPANT"
     CLOSED = "CLOSED"
-    INVALID_FORMAT = "INVALID_FORMAT"
     BOUND_TO_OTHER_USER = "BOUND_TO_OTHER_USER"
     COLLECTION_DISABLED = "COLLECTION_DISABLED"
 
@@ -24,7 +22,6 @@ class TierRouteStatus(StrEnum):
 class TierRouteResult:
     status: TierRouteStatus
     session: MatchSession | None = None
-    candidates: tuple[MatchSession, ...] = ()
 
     @property
     def accepted(self) -> bool:
@@ -132,28 +129,9 @@ class TierCollector:
                 activity_at,
             )
 
-        if not self._looks_like_tier_message(raw_content):
-            return TierRouteResult(TierRouteStatus.INVALID_FORMAT)
-        candidates = await self._repository.get_tier_candidates(
-            guild_id,
-            discord_user_id,
-            activity_at,
-        )
-        if not candidates:
-            return TierRouteResult(TierRouteStatus.IGNORED)
-        if len(candidates) > 1:
-            return TierRouteResult(
-                TierRouteStatus.AMBIGUOUS,
-                candidates=tuple(candidates),
-            )
-        return await self._bind_and_store(
-            candidates[0],
-            discord_user_id,
-            discord_display_name,
-            raw_content,
-            discord_message_id,
-            activity_at,
-        )
+        # New submissions must explicitly reply to a match tier guide.
+        # Existing message bindings above remain valid for legacy edits/deletes.
+        return TierRouteResult(TierRouteStatus.IGNORED)
 
     async def submit_delete(
         self,
@@ -231,8 +209,3 @@ class TierCollector:
             activity_at=activity_at,
             collected_at=self._clock.now(),
         )
-
-    @staticmethod
-    def _looks_like_tier_message(content: str) -> bool:
-        stripped = content.strip()
-        return bool(stripped) and ("/" in stripped or "#" in stripped)

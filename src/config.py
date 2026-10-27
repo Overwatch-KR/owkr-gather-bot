@@ -67,19 +67,10 @@ class MessageConfig:
 @dataclass(frozen=True, slots=True)
 class ManagerConfig:
     default_mode: str | None = None
-    pick_limit: str = ""
-    ban_list: tuple[str, ...] = ()
     extra_notice: str = ""
 
     def render_rules(self) -> str:
-        lines: list[str] = []
-        if self.pick_limit:
-            lines.append(f"픽 제한: {self.pick_limit}")
-        if self.ban_list:
-            lines.append(f"밴 목록: {', '.join(self.ban_list)}")
-        if self.extra_notice:
-            lines.append(self.extra_notice)
-        return "\n".join(lines)
+        return self.extra_notice
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,8 +177,6 @@ def load_app_config(path: Path) -> AppConfig:
         manager_raw = manager_raw or {}
         managers[_snowflake(user_id, "managers key")] = ManagerConfig(
             default_mode=_optional_text(manager_raw.get("default_mode")),
-            pick_limit=str(manager_raw.get("pick_limit", "")).strip(),
-            ban_list=tuple(str(item).strip() for item in manager_raw.get("ban_list", []) if str(item).strip()),
             extra_notice=str(manager_raw.get("extra_notice", "")).strip(),
         )
 

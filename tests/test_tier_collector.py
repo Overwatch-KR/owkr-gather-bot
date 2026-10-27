@@ -12,6 +12,8 @@ from src.domain.models import (
     ReactionMutation,
     RosterEntry,
     RosterStatus,
+    TierMessageBinding,
+    TierSubmission,
 )
 from src.infrastructure.sqlite_repository import SQLiteMatchRepository
 
@@ -116,21 +118,21 @@ class TierCollectorTest(unittest.IsolatedAsyncioTestCase):
         submission = await self.repository.get_tier_submission(self.session.id, 1)
         self.assertEqual(submission.discord_message_id, 500)
 
-    async def test_single_candidate_general_message_is_auto_routed(self) -> None:
+    async def test_general_message_is_ignored_even_with_one_candidate(self) -> None:
         result = await self.submit(
             1,
             self.session.recruitment_completed_notified_at,
         )
-        self.assertEqual(result.status, TierRouteStatus.ACCEPTED)
-        self.assertEqual(result.session.id, self.session.id)
+        self.assertEqual(result.status, TierRouteStatus.IGNORED)
+        self.assertIsNone(await self.repository.get_tier_binding(500))
 
-    async def test_general_message_requires_weak_tier_shape(self) -> None:
+    async def test_general_chat_is_ignored(self) -> None:
         result = await self.submit(
             1,
             self.session.recruitment_completed_notified_at,
             content="그냥 대화입니다",
         )
-        self.assertEqual(result.status, TierRouteStatus.INVALID_FORMAT)
+        self.assertEqual(result.status, TierRouteStatus.IGNORED)
 
     async def test_multiple_candidates_are_not_stored(self) -> None:
         second = make_session(
@@ -151,8 +153,7 @@ class TierCollectorTest(unittest.IsolatedAsyncioTestCase):
             self.session.recruitment_completed_notified_at,
         )
 
-        self.assertEqual(result.status, TierRouteStatus.AMBIGUOUS)
-        self.assertEqual({item.id for item in result.candidates}, {"match-a", "match-b"})
+        self.assertEqual(result.status, TierRouteStatus.IGNORED)
         self.assertIsNone(await self.repository.get_tier_binding(500))
 
     async def test_non_participant_anchor_reply_is_rejected(self) -> None:
@@ -263,3 +264,23 @@ class TierCollectorTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.status, TierRouteStatus.ACCEPTED)
         self.assertIsNotNone(await self.repository.get_tier_submission(self.session.id, 11))
+
+    async def test_legacy_non_reply_binding_still_edits_after_restart(self) -> None:
+        opened = self.session.recruitment_completed_notified_at
+        binding = TierMessageBinding(500, self.session.id, 1, opened)
+        submission = TierSubmission(self.session.id, 1, 'user-1', 'legacy tier', 500, opened, opened)
+        self.assertTrue(await self.repository.upsert_tier_message(binding, submission))
+        await self.repository.close()
+        self.repository = SQLiteMatchRepository(Path(self.tempdir.name) / 'test.sqlite3')
+        await self.repository.initialize(Path(__file__).resolve().parents[1] / 'migrations/001_initial.sql')
+        self.collector = TierCollector(self.repository, self.clock)
+        result = await self.submit(1, opened + timedelta(minutes=1), content='edited legacy tier')
+        self.assertEqual(result.status, TierRouteStatus.ACCEPTED)
+        stored = await self.repository.get_tier_submission(self.session.id, 1)
+        self.assertEqual(stored.raw_tier_message, 'edited legacy tier')
+        result = await self.collector.submit_delete(
+            guild_id=self.session.guild_id, channel_id=self.session.tier_channel_id,
+            discord_message_id=500, received_at=opened + timedelta(minutes=2),
+        )
+        self.assertEqual(result.status, TierRouteStatus.ACCEPTED)
+        self.assertIsNone(await self.repository.get_tier_submission(self.session.id, 1))
