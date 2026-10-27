@@ -63,6 +63,21 @@ class RuntimeConfigTest(unittest.TestCase):
         path.write_text(source.replace('  warning: "1360514209686753290"\n', ''))
         self.assertIsNone(load_app_config(path).channels.warning)
 
+    def test_legacy_pick_and_ban_settings_are_ignored_without_losing_other_manager_settings(self) -> None:
+        from src.config import load_app_config
+
+        path = self.root / "config" / "config.yaml"
+        source = path.read_text(encoding="utf-8")
+        path.write_text(source.replace('    default_mode: null',
+            '    default_mode: 클래식\n    pick_limit: 레거시 제한\n    ban_list: [레거시 밴]').replace(
+            '    extra_notice: ""', '    extra_notice: 추가 안내'))
+        config = load_app_config(path)
+        manager = next(iter(config.managers.values()))
+        self.assertEqual(manager.default_mode, '클래식')
+        self.assertEqual(manager.render_rules(), '추가 안내')
+        self.assertFalse(hasattr(manager, 'pick_limit'))
+        self.assertFalse(hasattr(manager, 'ban_list'))
+
     def test_recruitment_role_id_is_loaded_as_a_snowflake(self) -> None:
         config_path = self.root / "config" / "config.yaml"
         config_path.write_text(

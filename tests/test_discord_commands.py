@@ -4,7 +4,6 @@ import unittest
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,23 +16,16 @@ from src.adapters.discord_adapter import (
     EditMatchModal,
     GatherCog,
     ManagementCommandCheckFailure,
-    RecruitmentCompleteCopyModal,
-    RecruitmentCompleteSettingsView,
     _management_authorization_error,
     _normalized_command_payload,
     match_status_label,
 )
 from src.application.coordinator import DuplicateStartTime
-from src.application.recruitment_complete_editor import (
-    RecruitmentCompleteCopy,
-    load_recruitment_complete_copy,
-    recruitment_complete_copy_path,
-)
 from src.application.rendering import (
-    NotificationRenderer,
     RenderedNotification,
 )
 from src.application.tier_collector import TierRouteResult, TierRouteStatus
+from src.domain.models import RosterStatus
 from tests.helpers import make_config, make_session
 
 
@@ -142,10 +134,8 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
             {
                 "내전",
                 "티어현황",
-                "내전상태",
                 "내전대타",
                 "내전취소",
-                "공지문구",
             },
         )
         for command in commands.values():
@@ -159,7 +149,6 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(match_parameters["시간"].autocomplete)
         self.assertTrue(match_parameters["모드"].autocomplete)
         self.assertFalse(commands["티어현황"].parameters[0].required)
-        self.assertFalse(commands["내전상태"].parameters[0].required)
         substitute_parameters = {
             parameter.name: parameter
             for parameter in commands["내전대타"].parameters
@@ -167,47 +156,9 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(substitute_parameters), {"내전"})
         self.assertTrue(substitute_parameters["내전"].required)
         self.assertTrue(commands["내전취소"].parameters[0].required)
-        for name in ("티어현황", "내전상태", "내전대타", "내전취소"):
+        for name in ("티어현황", "내전대타", "내전취소"):
             self.assertTrue(commands[name].parameters[0].autocomplete)
 
-    async def test_simple_copy_modal_hides_template_variables(self) -> None:
-        cog = object.__new__(GatherCog)
-        copy = RecruitmentCompleteCopy(
-            tier_format_example="배틀태그\n뿅뿅이#31243\n그마5 / 그마2 / 그마5"
-        )
-        modal = RecruitmentCompleteCopyModal(cog, copy)
-
-        self.assertEqual(modal.title, "모집 완료 공지 문구")
-        self.assertEqual(modal.start_heading_input.default, "내전 시작")
-        self.assertEqual(modal.tier_heading_input.default, "👀 티어 작성 방법")
-        self.assertEqual(
-            modal.tier_format_example_input.default,
-            "배틀태그\n뿅뿅이#31243\n그마5 / 그마2 / 그마5",
-        )
-        all_defaults = "\n".join(
-            str(child.component.default or "")
-            for child in modal.children
-            if isinstance(child, discord.ui.Label)
-        )
-        self.assertNotIn("{{", all_defaults)
-        self.assertNotIn("{#", all_defaults)
-        label = modal.children[0]
-        self.assertIsInstance(label, discord.ui.Label)
-        self.assertEqual(label.text, "시작 제목")
-        self.assertEqual(label.description, "시작 시간은 봇이 자동으로 넣습니다.")
-
-    async def test_notice_settings_are_grouped_in_one_plain_menu(self) -> None:
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.user.id = 200
-        view = RecruitmentCompleteSettingsView(
-            object.__new__(GatherCog),
-            interaction,
-        )
-
-        self.assertEqual(
-            [child.label for child in view.children],
-            ["문구 편집", "미리보기", "닫기"],
-        )
 
     async def test_confirmation_views_use_plain_manager_labels(self) -> None:
         interaction = MagicMock(spec=discord.Interaction)
@@ -429,7 +380,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         command = next(
             command
             for command in GatherCog.__cog_app_commands__
-            if command.name == "공지문구"
+            if command.name == "내전"
         )
         check = next(
             check
@@ -446,42 +397,6 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ManagementCommandCheckFailure):
             await check(interaction)
 
-    async def test_simple_copy_save_updates_editor_data_and_template(self) -> None:
-        with TemporaryDirectory() as directory:
-            template_path = Path(directory) / "recruitment_complete.txt"
-            cog = object.__new__(GatherCog)
-            cog._config = make_config()
-            cog._recruitment_complete_template_path = template_path
-            cog._recruitment_complete_copy_path = recruitment_complete_copy_path(
-                template_path
-            )
-            copy = RecruitmentCompleteCopy(
-                start_heading="오늘의 내전",
-                tier_heading="티어 적기",
-                tier_instruction="아래 양식으로 적어 주세요.",
-                tier_format_example="배틀태그\n브5 / 브5 / 브5",
-                extra_notice="늦으면 관리자에게 알려 주세요.",
-            )
-
-            cog.save_recruitment_complete_copy(copy)
-
-            saved = load_recruitment_complete_copy(
-                cog._recruitment_complete_copy_path
-            )
-            self.assertEqual(saved, copy)
-            source = template_path.read_text(encoding="utf-8")
-            self.assertIn("{{ starts_at }}", source)
-            self.assertNotIn("{{ user }}", source)
-            self.assertNotIn("{#", source)
-            rendered = NotificationRenderer(
-                make_config(),
-                template_path,
-            ).render_recruitment_complete(make_session(), (1, 2))
-            self.assertIn("오늘의 내전", rendered.content)
-            self.assertIn("티어 적기", rendered.content)
-            self.assertIn("늦으면 관리자에게 알려 주세요.", rendered.content)
-            self.assertNotIn("<@1>", rendered.content)
-            self.assertNotIn("{{", rendered.content)
 
     async def test_seed_reaction_is_restored_when_no_participants_remain(self) -> None:
         actor = MagicMock()
@@ -508,6 +423,53 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         message.add_reaction.assert_awaited_once_with("✅")
         message.remove_reaction.assert_not_awaited()
+
+    async def test_tier_status_combines_roster_and_tier_without_public_mentions(self) -> None:
+        session = make_session(completion_notified_at=make_session().created_at)
+        cog = object.__new__(GatherCog)
+        cog._select_active_match = AsyncMock(return_value=session)
+        cog._match_label = lambda _: "오늘 내전"
+        actor = MagicMock()
+        actor.drain = AsyncMock()
+        cog._coordinator = MagicMock()
+        cog._coordinator.actor_for_match.return_value = actor
+        cog._writer = SimpleNamespace(flush=AsyncMock())
+        cog._repository = SimpleNamespace(
+            load_roster=AsyncMock(return_value=[
+                SimpleNamespace(status=RosterStatus.CONFIRMED, conflict_match_id=None),
+                SimpleNamespace(status=RosterStatus.WAITLISTED, conflict_match_id="legacy", discord_display_name="대기자"),
+            ]),
+            get_tier_status=AsyncMock(return_value=[
+                SimpleNamespace(discord_display_name="완료자", has_tier=True),
+                SimpleNamespace(discord_display_name="미작성자", has_tier=False),
+            ]),
+        )
+        interaction = SimpleNamespace(response=SimpleNamespace(send_message=AsyncMock()))
+        await GatherCog.tier_status.callback(cog, interaction)
+        content = interaction.response.send_message.await_args.args[0]
+        self.assertIn("참가 · 1/10명", content)
+        self.assertIn("대기 · 1명", content)
+        self.assertIn("완료 · 완료자", content)
+        self.assertIn("미작성 · 미작성자", content)
+        self.assertIn("다른 내전과 충돌", content)
+        self.assertTrue(interaction.response.send_message.await_args.kwargs['ephemeral'])
+        self.assertEqual(interaction.response.send_message.await_args.kwargs['allowed_mentions'].to_dict()['parse'], [])
+
+    async def test_tier_status_shows_roster_before_tier_collection_opens(self) -> None:
+        session = make_session()
+        cog = object.__new__(GatherCog)
+        cog._select_active_match = AsyncMock(return_value=session)
+        cog._match_label = lambda _: "오늘 내전"
+        cog._coordinator = MagicMock()
+        cog._coordinator.actor_for_match.return_value = None
+        cog._writer = SimpleNamespace(flush=AsyncMock())
+        cog._repository = SimpleNamespace(load_roster=AsyncMock(return_value=[]), get_tier_status=AsyncMock())
+        interaction = SimpleNamespace(response=SimpleNamespace(send_message=AsyncMock()))
+        await GatherCog.tier_status.callback(cog, interaction)
+        content = interaction.response.send_message.await_args.args[0]
+        self.assertIn("참가 · 0/10명", content)
+        self.assertIn("모집 완료 공지가 전송된 뒤", content)
+        cog._repository.get_tier_status.assert_not_awaited()
 
     async def test_seed_reaction_is_removed_while_participants_exist(self) -> None:
         actor = MagicMock()

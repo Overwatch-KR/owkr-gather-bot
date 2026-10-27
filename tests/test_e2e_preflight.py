@@ -38,10 +38,8 @@ class E2EPreflightTest(unittest.TestCase):
         names = {
             "내전",
             "티어현황",
-            "내전상태",
             "내전대타",
             "내전취소",
-            "공지문구",
             "경고",
             "개인정보",
         }

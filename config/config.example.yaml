@@ -45,6 +45,4 @@ messages:
 managers:
   "123456789012345683":
     default_mode: null
-    pick_limit: ""
-    ban_list: []
     extra_notice: ""
