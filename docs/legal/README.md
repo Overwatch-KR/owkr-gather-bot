@@ -44,3 +44,7 @@
 검토한다. 문서에 약속한 처리는 코드·운영 절차와 검증으로 뒷받침해야 한다.
 
 공식 근거: [Discord 개발자 약관 §5](https://support-dev.discord.com/hc/en-us/articles/8562894815383-Discord-Developer-Terms-of-Service).
+
+## GitHub Pages 초안 공개
+
+공개용 HTML과 배포 설정은 [GitHub Pages 안내](../github-pages.md)를 따른다. 검토 중 초안으로만 공개하며, 위 최종 정책 체크리스트는 그대로 적용한다.

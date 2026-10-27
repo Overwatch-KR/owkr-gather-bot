@@ -12,6 +12,7 @@
 | [Discord E2E](discord-e2e.md) | 실제 서버에서 권한·반응·알림·삭제를 확인하는 절차 |
 | [VM 운영 안내](oracle-free-deployment.md) | 단일 프로세스 배포, 로그·백업·복원 |
 | [개인정보·최소 권한 검토](privacy-and-permissions-review.html) | 구현된 보호 조치와 아직 필요한 운영 확인 |
+| [공개 웹 배포](github-pages.md) | GitHub Pages 구성·수정·복원과 초안 상태 |
 | [정책·지원 문서](legal/README.md) | 처리방침·약관·문의 안내의 공개 전 초안 |
 | [초기 설계 기록](owkr-gather-bot-mvp-design.html) | 과거 제안 보존용. 현재 구현 지침으로 사용하지 않음 |
 
