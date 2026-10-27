@@ -10,6 +10,7 @@
 
 - [설치](#요구-사항과-설치) · [실행](#실행) · [슬래시 명령어](#슬래시-명령어)
 - [문서 모음](docs/README.md) · [현재 구현 설계](docs/owkr-gather-bot-mvp-design-v2.html)
+- [코드 구조·의존성·실행과 복구 순서](docs/architecture.md)
 - [Discord E2E 점검](docs/discord-e2e.md) · [VM 배포 안내](docs/oracle-free-deployment.md)
 - [개인정보·최소 권한 검토 기록](docs/privacy-and-permissions-review.html) · 미확정 정책과 후속 검증 과제
 - [개인정보처리방침·이용약관·지원 안내](docs/legal/README.md) · 공개 전 초안과 공개 준비 항목
