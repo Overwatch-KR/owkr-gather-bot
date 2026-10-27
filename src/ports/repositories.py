@@ -115,6 +115,9 @@ class MatchRepository(ABC):
     ) -> TierMessageBinding | None: ...
 
     @abstractmethod
+    async def tier_collection_disabled(self, match_id: str, user_id: int) -> bool: ...
+
+    @abstractmethod
     async def upsert_tier_message(
         self,
         binding: TierMessageBinding,

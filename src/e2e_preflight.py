@@ -20,6 +20,8 @@ EXPECTED_SLASH_COMMANDS = frozenset(
         "내전대타",
         "내전취소",
         "공지문구",
+        "경고",
+        "개인정보",
     }
 )
 
@@ -59,6 +61,7 @@ CHANNEL_PERMISSION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "view_channel",
         "send_messages",
     ),
+    "경고 채널": ("view_channel", "send_messages"),
     "대기실 음성 채널": ("view_channel",),
     "대기실 2 음성 채널": ("view_channel",),
 }
@@ -235,6 +238,8 @@ class E2EPreflightClient(discord.Client):
                     (discord.VoiceChannel, discord.StageChannel),
                 )
             )
+        if self._config.channels.warning is not None:
+            channel_specs.append(("경고 채널", self._config.channels.warning, discord.TextChannel))
         for label, channel_id, expected_type in channel_specs:
             channel = channels.get(channel_id)
             if channel is None:

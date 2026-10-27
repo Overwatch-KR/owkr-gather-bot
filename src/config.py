@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from dotenv import load_dotenv
@@ -32,6 +33,14 @@ class ChannelConfig:
     announcement: int
     tier: int
     admin: int
+    warning: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyConfig:
+    privacy_url: str | None = None
+    terms_url: str | None = None
+    support_contact: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +91,7 @@ class AppConfig:
     defaults: DefaultConfig
     messages: MessageConfig
     managers: dict[int, ManagerConfig] = field(default_factory=dict)
+    policy: PolicyConfig = field(default_factory=PolicyConfig)
 
     def manager(self, user_id: int) -> ManagerConfig:
         return self.managers.get(user_id, ManagerConfig())
@@ -118,6 +128,15 @@ def load_app_config(path: Path) -> AppConfig:
     channels_raw = raw.get("channels", {})
     defaults_raw = raw.get("defaults", {})
     messages_raw = raw.get("messages", {})
+    policy_raw = raw.get("policy", {}) or {}
+    policy_urls = {}
+    for name in ("privacy_url", "terms_url"):
+        value = _optional_text(policy_raw.get(name))
+        if value:
+            url = urlsplit(value)
+            if url.scheme != "https" or not url.hostname or url.username or url.password:
+                raise ValueError(f"policy.{name} must be a public HTTPS URL")
+        policy_urls[name] = value
 
     defaults = DefaultConfig(
         participant_limit=int(defaults_raw.get("participant_limit", 10)),
@@ -179,6 +198,10 @@ def load_app_config(path: Path) -> AppConfig:
             announcement=_snowflake(channels_raw.get("announcement"), "channels.announcement"),
             tier=_snowflake(channels_raw.get("tier"), "channels.tier"),
             admin=_snowflake(channels_raw.get("admin"), "channels.admin"),
+            warning=(
+                _snowflake(channels_raw["warning"], "channels.warning")
+                if channels_raw.get("warning") is not None else None
+            ),
         ),
         admin_user_ids=frozenset(
             _snowflake(item, "admin_user_ids") for item in raw.get("admin_user_ids", [])
@@ -193,6 +216,10 @@ def load_app_config(path: Path) -> AppConfig:
             manner_notice=str(messages_raw.get("manner_notice", "")).strip(),
         ),
         managers=managers,
+        policy=PolicyConfig(
+            **policy_urls,
+            support_contact=_optional_text(policy_raw.get("support_contact")),
+        ),
     )
 
 
