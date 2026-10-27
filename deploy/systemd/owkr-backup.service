@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up OWKR Gather Bot data and configuration
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Match the actual checkout path before enabling this unit.
+WorkingDirectory=/home/ubuntu/owkr-gather-bot
+ExecStart=/bin/sh /home/ubuntu/owkr-gather-bot/scripts/backup.sh
+UMask=0077
+TimeoutStartSec=15min

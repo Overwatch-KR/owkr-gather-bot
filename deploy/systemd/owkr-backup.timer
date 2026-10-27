@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily OWKR Gather Bot backup
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 Asia/Seoul
+Persistent=true
+Unit=owkr-backup.service
+
+[Install]
+WantedBy=timers.target
