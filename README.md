@@ -285,8 +285,10 @@ Discord 원문·기존 로그·백업은 버튼으로 지워지지 않습니다.
 
 공개 문서가 확정되면 `policy.privacy_url`, `policy.terms_url`에 HTTPS 주소를,
 `policy.support_contact`에 실제 문의 경로를 설정합니다. 미설정 시 링크를 꾸며내지 않고
-서버 관리자에게 비공개 문의하도록 안내합니다. 운영자·전용 연락처와 백업·로그 보관 정책은
-아직 공개 준비 항목이며 [문서 관리 안내](docs/legal/README.md)를 확인해야 합니다.
+서버 관리자에게 비공개 문의하도록 안내합니다. 예제의 담당자는 개발자 겸 내전 총관리자
+qtaghdi이며 이메일은 qtaghdi@gmail.com, 보조 경로는 Discord `qtaghdi`의 DM입니다.
+운영 설정의 `policy.support_contact`에도 반영해야 합니다. 법정 책임자 표시 요건과
+백업·로그 보관 정책은 [문서 관리 안내](docs/legal/README.md)의 공개 준비 항목입니다.
 
 ## 자동 테스트
 

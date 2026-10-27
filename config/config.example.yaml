@@ -9,10 +9,10 @@ channels:
   warning: "1360514209686753290"
 
 policy:
-  # 최종 공개 후 HTTPS 주소와 실제 문의 경로를 입력합니다.
+  # 최종 공개 후 HTTPS 주소를 입력합니다. 문의는 이메일 또는 Discord DM으로 받습니다.
   privacy_url: null
   terms_url: null
-  support_contact: null
+  support_contact: "봇 운영·개인정보 보호 담당 qtaghdi (개발자 겸 내전 총관리자) · 이메일 qtaghdi@gmail.com · Discord qtaghdi"
 
 admin_user_ids:
   - "123456789012345683"
