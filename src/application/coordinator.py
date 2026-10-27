@@ -1,3 +1,4 @@
+"""내전 생명주기·Actor·메시지 routing의 소유자. 생성·활성화·취소·시작은 이곳을 통한다."""
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from src.config import AppConfig
 from src.domain.clock import Clock
 from src.domain.match_code import random_match_code
 from src.domain.models import (
@@ -17,12 +17,12 @@ from src.domain.models import (
     ReactionEvent,
     SubstituteRecruitment,
 )
-from src.infrastructure.persistence_writer import PersistenceWriter
+from src.domain.settings import AppConfig
 from src.parsing.match_command import ParsedMatchCommand
-from src.ports.repositories import MatchRepository
+from src.ports.persistence import MutationWriter
+from src.ports.repositories import SessionRepository
 
 from .session_actor import SessionActor
-
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,12 @@ class DuplicateStartTime(RuntimeError):
 
 
 class SessionCoordinator:
+    """생명주기 변경은 잠금으로 직렬화하고 반응은 각 내전 Actor에 전달한다."""
     def __init__(
         self,
         config: AppConfig,
-        repository: MatchRepository,
-        writer: PersistenceWriter,
+        repository: SessionRepository,
+        writer: MutationWriter,
         clock: Clock,
     ) -> None:
         self._config = config
@@ -138,6 +139,7 @@ class SessionCoordinator:
         return actor.session if actor is not None else None
 
     async def restore(self) -> None:
+        """DB에서 참가 명단과 모든 메시지 경로를 복구한다. 미완성 생성은 재전송 없이 취소한다."""
         sessions = await self._repository.get_active_matches(self._config.guild_id)
         restored = 0
         for session in sessions:
@@ -293,6 +295,7 @@ class SessionCoordinator:
             )
 
     async def cancel_match(self, match_id: str) -> MatchSession | None:
+        """DB를 먼저 취소해 남은 writer 변경이 취소된 내전을 되살리지 못하게 한다."""
         async with self._lifecycle_lock:
             session = self._session_by_id(match_id)
             if session is None:
@@ -369,6 +372,7 @@ class SessionCoordinator:
             )
 
     async def start_match(self, match_id: str) -> MatchSession | None:
+        """시작 전 접수분을 Actor → writer 순서로 비운 뒤 DB와 routing을 종료한다."""
         async with self._lifecycle_lock:
             session = self._session_by_id(match_id)
             if session is None:

@@ -1,17 +1,11 @@
+"""설정 로드·안전한 로그·실행 진입점. 서비스 조립은 bootstrap에 둔다."""
 from __future__ import annotations
 
 import logging
 import sys
 
-from src.adapters.discord_adapter import GatherBot
-from src.application.coordinator import SessionCoordinator
-from src.application.scheduler import MatchScheduler
-from src.application.tier_collector import TierCollector
+from src.bootstrap import build_bot
 from src.config import ConfigurationError, load_runtime_config
-from src.domain.clock import SystemClock
-from src.infrastructure.persistence_writer import PersistenceWriter
-from src.infrastructure.sqlite_repository import SQLiteMatchRepository
-
 
 logger = logging.getLogger(__name__)
 
@@ -36,24 +30,7 @@ def main() -> None:
         "recruitment complete template path=%s",
         runtime.recruitment_complete_template_path,
     )
-    repository = SQLiteMatchRepository(runtime.database_path)
-    writer = PersistenceWriter(repository)
-    clock = SystemClock()
-    coordinator = SessionCoordinator(runtime.app, repository, writer, clock)
-    tier_collector = TierCollector(repository, clock)
-    scheduler = MatchScheduler(coordinator, repository, writer, clock)
-    bot = GatherBot(
-        config=runtime.app,
-        repository=repository,
-        writer=writer,
-        coordinator=coordinator,
-        tier_collector=tier_collector,
-        scheduler=scheduler,
-        clock=clock,
-        template_path=runtime.template_path,
-        recruitment_complete_template_path=runtime.recruitment_complete_template_path,
-        migration_path=runtime.working_directory / "migrations" / "001_initial.sql",
-    )
+    bot = build_bot(runtime)
     bot.run(runtime.token, log_handler=None)
 
 

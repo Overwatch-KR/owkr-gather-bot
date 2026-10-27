@@ -8,11 +8,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.adapters.discord_adapter import allowed_mentions_for, _interaction_role_ids
+from src.adapters.discord.common import _interaction_role_ids, allowed_mentions_for
 from src.application.safety import SafetyService
 from src.config import AppConfig
 from src.domain.warnings import WarningReason, WarningSummary
-
 
 logger = logging.getLogger(__name__)
 

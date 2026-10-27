@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,9 +11,9 @@ from src.application.recruitment_complete_editor import (
     load_recruitment_complete_copy,
     recruitment_complete_copy_path,
 )
-from src.config import AppConfig, ManagerConfig
 from src.domain.models import MatchSession, NotificationKind, NotificationRecord
-
+from src.domain.settings import AppConfig, ManagerConfig
+from src.ports.notifications import RenderedNotification, _mention_lines
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -46,41 +45,6 @@ def format_discord_timestamp(value, style: str) -> str:
     if style not in {"t", "T", "d", "D", "f", "F", "R"}:
         raise ValueError(f"unsupported Discord timestamp style: {style}")
     return f"<t:{int(value.timestamp())}:{style}>"
-
-
-@dataclass(frozen=True, slots=True)
-class RenderedNotification:
-    content: str
-    allowed_user_ids: tuple[int, ...] = ()
-    voice_channel_id: int | None = None
-    content_before_mentions: str | None = None
-    content_after_mentions: str | None = None
-
-    def with_allowed_user_ids(
-        self,
-        user_ids: tuple[int, ...],
-    ) -> RenderedNotification:
-        if self.content_before_mentions is None or self.content_after_mentions is None:
-            raise ValueError("notification content cannot be rebuilt with filtered mentions")
-        return RenderedNotification(
-            content=(
-                self.content_before_mentions
-                + _mention_lines(user_ids)
-                + self.content_after_mentions
-            ),
-            allowed_user_ids=user_ids,
-            voice_channel_id=self.voice_channel_id,
-            content_before_mentions=self.content_before_mentions,
-            content_after_mentions=self.content_after_mentions,
-        )
-
-
-def _mention_lines(user_ids: tuple[int, ...]) -> str:
-    mentions = [f"<@{user_id}>" for user_id in user_ids]
-    return "\n".join(
-        " ".join(mentions[index : index + 5])
-        for index in range(0, len(mentions), 5)
-    )
 
 
 class RecruitmentTemplateRenderer:

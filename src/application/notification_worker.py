@@ -1,32 +1,24 @@
+"""DB outbox를 읽어 전송하고 결과를 기록한다. 전송·DB 사이의 강제 종료는 중복을 남길 수 있다."""
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Protocol
 
 from src.domain.clock import Clock
 from src.domain.models import NotificationKind, NotificationRecord
-from src.ports.repositories import MatchRepository
+from src.ports.notifications import NotificationTransport
+from src.ports.repositories import NotificationRepository
 
 from .coordinator import SessionCoordinator
-from .rendering import NotificationRenderer, RenderedNotification
-
+from .rendering import NotificationRenderer
 
 logger = logging.getLogger(__name__)
-
-
-class NotificationTransport(Protocol):
-    async def send(
-        self,
-        channel_id: int,
-        rendered: RenderedNotification,
-    ) -> int | None: ...
 
 
 class NotificationWorker:
     def __init__(
         self,
-        repository: MatchRepository,
+        repository: NotificationRepository,
         coordinator: SessionCoordinator,
         renderer: NotificationRenderer,
         transport: NotificationTransport,
@@ -97,6 +89,7 @@ class NotificationWorker:
             rendered = self._renderer.render(notification, session)
             message_id = await self._transport.send(notification.channel_id, rendered)
             sent_at = self._clock.now()
+            # Discord와 SQLite 사이에 분산 트랜잭션은 없다. 이 기록 전 중단되면 재전송될 수 있다.
             await self._repository.mark_notification_sent(notification, message_id, sent_at)
             self._coordinator.mark_notification_sent(
                 notification.match_id,

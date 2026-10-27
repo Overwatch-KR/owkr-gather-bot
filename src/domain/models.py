@@ -1,3 +1,4 @@
+"""내전 상태와 경계 간 전달 값. Discord SDK와 DB 연결에 의존하지 않는다."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -97,6 +98,7 @@ class MatchSession:
         return self.is_automatic() and activity_at < self.starts_at
 
     def accepts_tier_activity_at(self, activity_at: datetime) -> bool:
+        """모집 완료 전송 시각은 포함하고 마감·시작 시각은 포함하지 않는다."""
         opened_at = self.recruitment_completed_notified_at
         return (
             opened_at is not None

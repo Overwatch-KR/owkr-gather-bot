@@ -1,3 +1,4 @@
+"""변경 접수 순서를 유지하며 배치 저장한다. 실패한 배치를 건너뛰지 않고 재시도한다."""
 from __future__ import annotations
 
 import asyncio
@@ -5,8 +6,7 @@ import logging
 from dataclasses import dataclass
 
 from src.domain.models import PersistenceMutation
-from src.ports.repositories import MatchRepository
-
+from src.ports.repositories import MutationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,10 @@ QueueItem = PersistenceMutation | _FlushBarrier | _Stop
 
 
 class PersistenceWriter:
+    """프로세스당 하나를 공유한다. 큐는 메모리에 있으므로 강제 종료 시 유실될 수 있다."""
     def __init__(
         self,
-        repository: MatchRepository,
+        repository: MutationRepository,
         *,
         flush_interval_seconds: float = 1.0,
         max_batch_size: int = 100,
@@ -45,6 +46,7 @@ class PersistenceWriter:
         self._queue.put_nowait(mutation)
 
     async def flush(self) -> None:
+        """앞서 접수된 변경이 커밋된 후 barrier를 완료한다. 무제한 재시도로 오래 대기할 수 있다."""
         if self._task is None:
             return
         future = asyncio.get_running_loop().create_future()
@@ -95,6 +97,7 @@ class PersistenceWriter:
                 batch.append(item)
 
             retry_delay = 0.1
+            # 뒤의 배치를 먼저 기록하면 참가 순서와 복구 결과가 달라질 수 있다.
             while True:
                 try:
                     await self._repository.apply_mutations(batch)

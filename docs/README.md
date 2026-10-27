@@ -9,6 +9,8 @@
 | --- | --- |
 | [프로젝트 README](../README.md) | 설치, 6개 공개 명령, 설정, 기본 운영 흐름 |
 | [현재 구현 설계](owkr-gather-bot-mvp-design-v2.html) | 모집·티어·대타·경고·복구·저장 정책 |
+| [코드 아키텍처](architecture.md) | 책임·의존성·생성·저장·시작과 종료·복구의 보장 범위 |
+| [개발·Git 규칙](../CONTRIBUTING.md) | 구현 단위 커밋·커밋별 검증·PR·병합 이력 보존 |
 | [Discord E2E](discord-e2e.md) | 실제 서버에서 권한·반응·알림·삭제를 확인하는 절차 |
 | [VM 운영 안내](oracle-free-deployment.md) | 단일 프로세스 배포, 로그·백업·복원 |
 | [개인정보·최소 권한 검토](privacy-and-permissions-review.html) | 구현된 보호 조치와 아직 필요한 운영 확인 |
@@ -32,9 +34,10 @@
 
 ## 운영과 자동 검증
 
-GitHub Actions CI는 PR·main 변경 시 Python 3.13으로 전체 테스트·컴파일·의존성
-검사를 수행합니다. Discord 연결과 운영 토큰을 사용하는 E2E, 자동 배포는 포함하지
-않습니다. 자세한 실행 범위는 [README의 CI 안내](../README.md#자동-테스트)를 따릅니다.
+GitHub Actions CI는 main 대상 PR과 수동 실행에서 Python 3.13으로 전체 테스트·컴파일·
+의존성·Docker 검사를 수행합니다. main push에서는 CI를 반복하지 않고 배포 이미지
+생성과 공개 안내 웹 배포를 실행합니다. Discord 연결과 운영 토큰을 사용하는 E2E는
+별도로 진행합니다. 자세한 실행 범위는 [README의 CI 안내](../README.md#자동-테스트)를 따릅니다.
 
 정책 문서의 공개 URL·시행일, 호스팅·백업·로그의 보관과 보호 조치는 확정된 사실만
 기록합니다. 미완료 점검을 완료로 바꾸거나 예시를 실제 이용자 데이터로 취급하지 않습니다.

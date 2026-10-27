@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+import asyncio
 
 import discord
 
@@ -25,11 +26,44 @@ from src.application.rendering import (
     RenderedNotification,
 )
 from src.application.tier_collector import TierRouteResult, TierRouteStatus
+from src.adapters.discord.transport import DiscordRecruitmentPublisher
 from src.domain.models import RosterStatus
 from tests.helpers import make_config, make_session
 
 
 class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
+    async def test_recruitment_publisher_limits_mentions_to_the_configured_role(self):
+        config = make_config()
+        config = replace(config, defaults=replace(config.defaults, recruitment_role_id=777))
+        channel = MagicMock(spec=discord.TextChannel)
+        message = MagicMock(spec=discord.Message)
+        message.id = 9001
+        message.add_reaction = AsyncMock()
+        channel.send = AsyncMock(return_value=message)
+        bot = MagicMock()
+        bot.get_channel.return_value = channel
+        renderer = MagicMock()
+        renderer.render.return_value = "@everyone <@888> <@&999>"
+        published = await DiscordRecruitmentPublisher(bot, config, renderer).publish(make_session())
+        await published.add_seed_reaction()
+        allowed = channel.send.await_args.kwargs["allowed_mentions"].to_dict()
+        self.assertEqual([int(role) for role in allowed["roles"]], [777])
+        self.assertNotIn("everyone", allowed.get("parse", []))
+        self.assertNotIn("users", allowed.get("parse", []))
+        self.assertEqual(allowed.get("users", []), [])
+        self.assertEqual(published.message_id, 9001)
+        message.add_reaction.assert_awaited_once_with("✅")
+
+    async def test_unloading_cog_stops_reaction_reconciliation(self):
+        cog = object.__new__(GatherCog)
+        task = asyncio.create_task(asyncio.Event().wait())
+        cog._seed_reaction_tasks = {1000: task}
+        cog._seed_reaction_versions = {1000: 1}
+        await cog.cog_unload()
+        self.assertTrue(task.cancelled())
+        self.assertEqual(cog._seed_reaction_tasks, {})
+        self.assertEqual(cog._seed_reaction_versions, {})
+
     async def test_lobby_reminder_mentions_only_users_outside_voice_channel(
         self,
     ) -> None:
