@@ -479,3 +479,24 @@ DB가 손상됐거나 사라졌다면 새 빈 DB로 임의 실행하지 말고 �
 시작 시각 차이가 1시간 미만인 활성 내전은 서로 다른 방을 예약합니다.
 두 방이 모두 예약되면 추가 생성을 거부합니다. 생성 확인창의 방은 예상 배정이며
 최종 배정은 생성 요청을 처리하는 순서에 따라 확정되어 DB에 저장됩니다.
+
+## 보관 기한 자동 집행
+
+Ubuntu 전용 Compose는 journald 로그 드라이버를 사용한다. 변경 시 정상 종료·백업 후 컨테이너를 재생성한다. 오래된 컨테이너의 json-file 로그는 재생성 시 제거되므로 필요한 조사 내용을 먼저 확인한다. `.env`와 영구 DB·백업은 재생성과 별개로 유지된다.
+
+```sh
+sudo install -d /etc/systemd/journald.conf.d
+sudo install -m 644 deploy/journald-owkr.conf /etc/systemd/journald.conf.d/60-owkr-retention.conf
+sudo systemctl restart systemd-journald
+sudo install -m 644 deploy/systemd/owkr-retention.service deploy/systemd/owkr-retention.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+python3 scripts/retention.py --backups backups
+sudo systemctl enable --now owkr-retention.timer
+sudo systemctl start owkr-retention.service
+```
+
+시간별 정리는 완성된 백업의 생성 시각을 기준으로 7일 만료를 확인하고, journal을 회전시킨 뒤 30일 지난 아카이브를 비운다. journal 제한은 이 전용 VM 전체에 적용되므로 다른 서비스와 공유하는 호스트에는 그대로 설치하지 않는다. 호스트의 rsyslog·접속 로그 사본은 logrotate의 일일 회전·최대 30일을 별도로 확인한다. 보관 기한 정리 실패 시 journal 오류와 타이머 상태를 확인한다.
+
+Mac 설치와 중지 중 처리 한계는 `deploy/macos/README.md`를 따른다. 문의·요청 처리 대장은 공개 저장소가 아닌 운영 담당자의 접근 제한 위치에 두며, 매일 처리 종료 시각을 기준으로 만료·파기를 확인한다.
+
+30일은 최대 보관 기준이다. journal은 파일 묶음과 시간별 실행 여유를 두어 29일 만료·1시간 회전을 사용하고, rsyslog/wtmp/btmp 사본은 `deploy/logrotate/`의 일일 28개 회전으로 제한한다. 파일이 비어도 회전하므로 과거 접속 기록이 현행 파일에 무기한 남지 않게 한다. 세 파일을 `/etc/logrotate.d/`의 같은 이름으로 설치하고 `logrotate --debug /etc/logrotate.conf`로 중복 경로가 없는지 확인한다. systemd의 `logrotate.timer`도 활성화해야 한다.

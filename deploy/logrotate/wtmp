@@ -1,0 +1,7 @@
+/var/log/wtmp {
+    missingok
+    daily
+    rotate 28
+    maxage 28
+    create 0664 root utmp
+}
