@@ -316,7 +316,7 @@ class CancelMatchConfirmationView(discord.ui.View):
                 allowed_mentions=allowed_mentions_for([]),
             )
             return
-        announcement_deleted = await self._cog._delete_announcement_message(canceled)
+        announcement_updated = await self._cog._mark_announcement_canceled(canceled)
         anchor_deleted = await self._cog._delete_tier_anchor_message(canceled)
         substitutes_deleted = (
             await self._cog._delete_substitute_recruitment_messages(
@@ -326,14 +326,16 @@ class CancelMatchConfirmationView(discord.ui.View):
             if substitute_message_ids
             else True
         )
-        if announcement_deleted and anchor_deleted and substitutes_deleted:
-            await self._delete_original_response()
-            return
-        await interaction.edit_original_response(
-            content=(
-                "내전은 취소했지만 일부 봇 메시지를 지우지 못했습니다. "
+        result = f"{format_discord_timestamp(canceled.starts_at, 'F')} 내전이 취소되었습니다."
+        if not announcement_updated:
+            result += "\n모집 공지에 취소 안내를 표시하지 못했습니다. 공지 채널에 직접 안내해 주세요."
+        if not anchor_deleted or not substitutes_deleted:
+            result += (
+                "\n일부 봇 메시지를 지우지 못했습니다. "
                 "봇의 채널 보기·메시지 기록 보기 권한을 확인하고 남은 메시지를 직접 정리해 주세요."
-            ),
+            )
+        await interaction.edit_original_response(
+            content=result,
             view=None,
             allowed_mentions=allowed_mentions_for([]),
         )
