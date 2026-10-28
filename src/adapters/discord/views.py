@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import discord
 
 from src.application.coordinator import DuplicateSourceRequest, LobbyCapacityExceeded
-from src.application.rendering import format_match_time, format_korean_time
+from src.application.rendering import format_match_time, format_korean_time, format_lobby_target
 from src.domain.models import MatchSession
 from src.parsing.match_command import (
     CommandParseError,
@@ -136,7 +136,8 @@ class CreateMatchConfirmationView(discord.ui.View):
             or "일반 내전"
         )
         try:
-            _, lobby_name = self._cog._coordinator.lobby_assignment_for(self._parsed.starts_at)
+            lobby_id, lobby_name = self._cog._coordinator.lobby_assignment_for(self._parsed.starts_at)
+            lobby_name = format_lobby_target(lobby_id, lobby_name)
         except LobbyCapacityExceeded:
             lobby_name = "현재 빈 대기실 없음 · 시간을 변경해 주세요"
         return (

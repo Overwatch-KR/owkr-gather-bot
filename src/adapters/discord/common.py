@@ -7,7 +7,7 @@ from typing import Callable, Sequence, TypeVar
 import discord
 from discord import app_commands
 
-from src.application.rendering import format_match_time
+from src.application.rendering import format_match_time, format_lobby_target
 from src.config import AppConfig
 from src.domain.models import MatchSession, MatchStatus
 
@@ -145,7 +145,7 @@ def build_recruitment_embed(
         name="🔊 대기실 입장",
         value=(
             f"{format_match_time(session.lobby_at)}\n"
-            f"{session.lobby_name or config.defaults.lobby_name}"
+            f"{format_lobby_target(session.lobby_voice_channel_id or config.defaults.lobby_voice_channel_id, session.lobby_name or config.defaults.lobby_name)}"
         ),
         inline=True,
     )
