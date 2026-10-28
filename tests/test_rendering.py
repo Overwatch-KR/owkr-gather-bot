@@ -61,9 +61,41 @@ class RenderingTest(unittest.TestCase):
         content = RecruitmentTemplateRenderer(make_config(), template).render(
             session, make_config().manager(session.manager_user_id)
         )
-        embed = build_recruitment_embed(make_config(), content)
+        embed = build_recruitment_embed(make_config(), content, session)
         self.assertNotIn("🎮 모드", [field.name for field in embed.fields])
         self.assertNotIn("@everyone", content)
+
+    def test_card_preserves_manager_rules_and_separates_schedule(self) -> None:
+        config = make_config()
+        session = make_session()
+        session.mode = "6ㄷ6클래식"
+        manager = replace(config.manager(session.manager_user_id), extra_notice="마이크 필수 · 공지 확인")
+        template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"
+        content = RecruitmentTemplateRenderer(config, template).render(session, manager)
+        embed = build_recruitment_embed(config, content, session)
+        self.assertEqual(embed.title, "⚔️ 내전 모집 · 6ㄷ6클래식")
+        self.assertIn(manager.extra_notice, embed.description)
+        self.assertIn("✅ 참가 신청", embed.description)
+        self.assertEqual([f.name for f in embed.fields[:2]], ["📝 티어 작성 마감", "🔊 대기실 입장"])
+        self.assertTrue(all(f.inline for f in embed.fields[:2]))
+        self.assertNotIn(session.match_code, str(embed.to_dict()))
+        self.assertNotIn("상세 안내", str(embed.to_dict()))
+
+    def test_card_preserves_long_notice_and_only_links_configured_terms(self) -> None:
+        config = make_config()
+        notice = "기존 운영 안내 " * 200
+        config = replace(
+            config,
+            messages=replace(config.messages, manner_notice=notice),
+            policy=replace(config.policy, terms_url="https://example.com/terms"),
+        )
+        embed = build_recruitment_embed(config, "사용자 지정 본문", make_session())
+        self.assertEqual(embed.description, "사용자 지정 본문")
+        self.assertEqual("".join(f.value for f in embed.fields[2:-1]), notice)
+        self.assertIn("https://example.com/terms", embed.fields[-1].value)
+        self.assertTrue(all(len(f.value) <= 1024 for f in embed.fields))
+        with self.assertRaises(ValueError):
+            build_recruitment_embed(config, "긴 본문" * 2000, make_session())
 
     def test_recruitment_uses_native_discord_timestamps(self) -> None:
         template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"
@@ -72,13 +104,13 @@ class RenderingTest(unittest.TestCase):
         recruitment = RecruitmentTemplateRenderer(config, template).render(
             session, config.manager(session.manager_user_id)
         )
-        embed = build_recruitment_embed(config, recruitment)
+        embed = build_recruitment_embed(config, recruitment, session)
         embed_payload = embed.to_dict()
         embed_text = str(embed_payload)
         starts_at = int(session.starts_at.timestamp())
         tier_deadline_at = int(session.tier_deadline_at.timestamp())
         lobby_at = int(session.lobby_at.timestamp())
-        self.assertEqual(embed.title, "내전 모집")
+        self.assertEqual(embed.title, "⚔️ 내전 모집")
         self.assertIn(f"<t:{starts_at}:F>", embed_text)
         self.assertIn(f"<t:{starts_at}:R>", embed_text)
         self.assertIn(f"<t:{tier_deadline_at}:t>", embed_text)
@@ -86,10 +118,10 @@ class RenderingTest(unittest.TestCase):
         self.assertNotIn("7월", embed_text)
         self.assertIn(f"첫 **{session.participant_limit}명**까지 확정", embed.description)
         self.assertEqual(
-            embed.footer.text,
+            embed.fields[2].value,
             config.messages.manner_notice,
         )
-        self.assertIn(f"<#{session.tier_channel_id}>", embed.description)
+        self.assertIn(f"<#{session.tier_channel_id}>", embed.fields[0].value)
 
         notification = NotificationRecord(
             id=1,
