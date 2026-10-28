@@ -41,6 +41,11 @@ def format_korean_time(value) -> str:
     return f"{period} {hour}시{minute}"
 
 
+def format_match_time(value: datetime) -> str:
+    """공개 일정은 접속자의 언어·시간대와 관계없이 한국 시간으로 표시한다."""
+    return f"__**{format_korean_time(value)}**__"
+
+
 def format_discord_timestamp(value, style: str) -> str:
     if style not in {"t", "T", "d", "D", "f", "F", "R"}:
         raise ValueError(f"unsupported Discord timestamp style: {style}")
@@ -56,13 +61,13 @@ class RecruitmentTemplateRenderer:
     def render(self, session: MatchSession, manager: ManagerConfig) -> str:
         mode_display = session.mode or self._config.defaults.mode_display_fallback
         content = self._template.render(
-            starts_at_display=format_discord_timestamp(session.starts_at, "F"),
-            starts_at_relative=format_discord_timestamp(session.starts_at, "R"),
+            starts_at_display=format_match_time(session.starts_at),
+            starts_at_relative="",  # 기존 사용자 지정 템플릿의 변수 계약은 유지한다.
             mode_display=mode_display,
             participant_limit=session.participant_limit,
             participation_notice=self._config.messages.participation_notice,
-            tier_deadline_display=format_discord_timestamp(session.tier_deadline_at, "t"),
-            lobby_display=format_discord_timestamp(session.lobby_at, "t"),
+            tier_deadline_display=format_match_time(session.tier_deadline_at),
+            lobby_display=format_match_time(session.lobby_at),
             lobby_name=session.lobby_name or self._config.defaults.lobby_name,
             tier_channel_mention=f"<#{session.tier_channel_id}>",
             manager_rules=manager.render_rules(),
@@ -94,17 +99,17 @@ class NotificationRenderer:
         content = template.render(
             user="",
             users="",
-            starts_at="<t:1784199600:F>",
-            starts_at_display="<t:1784199600:F>",
-            start_time="<t:1784199600:t>",
-            starts_in="<t:1784199600:R>",
+            starts_at="__**오후 8시**__",
+            starts_at_display="__**오후 8시**__",
+            start_time="__**오후 8시**__",
+            starts_in="",
             mode="6ㄷ6클래식",
             tier_channel="<#123456789012345678>",
             tier_channel_mention="<#123456789012345678>",
-            tier_deadline="<t:1784197800:t>",
-            tier_deadline_display="<t:1784197800:t>",
-            lobby_time="<t:1784199000:t>",
-            lobby_display="<t:1784199000:t>",
+            tier_deadline="__**오후 7시 30분**__",
+            tier_deadline_display="__**오후 7시 30분**__",
+            lobby_time="__**오후 7시 50분**__",
+            lobby_display="__**오후 7시 50분**__",
             lobby_name=config.defaults.lobby_name,
             participant_count=max(10, config.defaults.participant_limit),
             manner_notice=config.messages.manner_notice,
@@ -176,12 +181,12 @@ class NotificationRenderer:
         lobby_at: datetime,
         lobby_name: str,
     ) -> RenderedNotification:
-        starts_at_display = format_discord_timestamp(starts_at, "F")
-        start_time = format_discord_timestamp(starts_at, "t")
-        starts_in = format_discord_timestamp(starts_at, "R")
+        starts_at_display = format_match_time(starts_at)
+        start_time = format_match_time(starts_at)
+        starts_in = ""
         tier_channel = f"<#{tier_channel_id}>"
-        tier_deadline = format_discord_timestamp(tier_deadline_at, "t")
-        lobby_time = format_discord_timestamp(lobby_at, "t")
+        tier_deadline = format_match_time(tier_deadline_at)
+        lobby_time = format_match_time(lobby_at)
         content = self._load_recruitment_complete_template().render(
             user="",
             users="",
@@ -223,7 +228,7 @@ class NotificationRenderer:
             content = (
                 "**🆘 대타 모집 완료**\n\n"
                 f"{mentions}\n\n"
-                f"{format_discord_timestamp(session.starts_at, 't')} 내전의 "
+                f"{format_match_time(session.starts_at)} 내전의 "
                 "대타 대기열에 등록되었습니다.\n"
                 f"<#{session.tier_channel_id}>의 해당 내전 안내 메시지에 "
                 "답장으로 티어를 작성해 주세요.\n"
@@ -237,14 +242,14 @@ class NotificationRenderer:
         if notification.kind is NotificationKind.TIER_ANCHOR:
             mode = session.mode or self._config.defaults.mode_display_fallback or "일반 내전"
             content = (
-                f"## 📋 {format_discord_timestamp(session.starts_at, 't')} "
+                f"## 📋 {format_match_time(session.starts_at)} "
                 "내전 티어 작성\n\n"
                 f"**관리자** · <@{session.manager_user_id}>\n"
                 f"**모드** · {mode}\n\n"
                 "이 내전에 참가한 분은 **이 메시지에 답장**해 주세요.\n\n"
                 f"{self._tier_writing_guide(include_instruction=False)}\n\n"
                 f"**티어 작성 마감** · "
-                f"{format_discord_timestamp(session.tier_deadline_at, 't')}"
+                f"{format_match_time(session.tier_deadline_at)}"
             )
             return RenderedNotification(content=content)
 
@@ -261,8 +266,7 @@ class NotificationRenderer:
             user_ids = tuple(int(user_id) for user_id in notification.payload.get("user_ids", []))
             content_before_mentions = (
                 "## 🔊 대기실 입장 안내\n\n"
-                f"**내전 시작** · {format_discord_timestamp(session.starts_at, 'F')} "
-                f"({format_discord_timestamp(session.starts_at, 'R')})\n\n"
+                f"**내전 시작** · {format_match_time(session.starts_at)}\n\n"
             )
             content_after_mentions = (
                 f"\n\n📢 **{session.lobby_name or self._config.defaults.lobby_name}**으로 "
@@ -297,7 +301,7 @@ class NotificationRenderer:
 
         return RenderedNotification(
             content=(
-                f"✅ {format_discord_timestamp(session.starts_at, 'F')} 내전 참가자 "
+                f"✅ {format_match_time(session.starts_at)} 내전 참가자 "
                 "전원이 티어 작성을 완료했습니다."
             )
         )

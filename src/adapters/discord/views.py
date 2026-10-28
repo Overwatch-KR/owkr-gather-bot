@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import discord
 
 from src.application.coordinator import DuplicateSourceRequest, DuplicateStartTime
-from src.application.rendering import format_discord_timestamp, format_korean_time
+from src.application.rendering import format_match_time, format_korean_time
 from src.domain.models import MatchSession
 from src.parsing.match_command import (
     CommandParseError,
@@ -140,11 +140,11 @@ class CreateMatchConfirmationView(discord.ui.View):
         )
         return (
             "**내전 생성 확인**\n\n"
-            f"시작 · {format_discord_timestamp(self._parsed.starts_at, 'F')}\n"
+            f"시작 · {format_match_time(self._parsed.starts_at)}\n"
             f"모드 · {mode}\n"
             f"티어 마감 · "
-            f"{format_discord_timestamp(self._parsed.tier_deadline_at, 't')}\n"
-            f"대기실 입장 · {format_discord_timestamp(self._parsed.lobby_at, 't')} "
+            f"{format_match_time(self._parsed.tier_deadline_at)}\n"
+            f"대기실 입장 · {format_match_time(self._parsed.lobby_at)} "
             f"· {lobby_name}\n\n"
             "이 내용으로 모집 공지를 만들까요?"
         )
@@ -217,7 +217,7 @@ class CreateMatchConfirmationView(discord.ui.View):
         )
         await interaction.edit_original_response(
             content=(
-                f"✅ {format_discord_timestamp(session.starts_at, 't')} 내전을 만들었습니다. "
+                f"✅ {format_match_time(session.starts_at)} 내전을 만들었습니다. "
                 f"[모집 공지 보기]({announcement_url})"
             ),
             view=None,
@@ -326,7 +326,7 @@ class CancelMatchConfirmationView(discord.ui.View):
             if substitute_message_ids
             else True
         )
-        result = f"{format_discord_timestamp(canceled.starts_at, 'F')} 내전이 취소되었습니다."
+        result = f"{format_match_time(canceled.starts_at)} 내전이 취소되었습니다."
         if not announcement_updated:
             result += "\n모집 공지에 취소 안내를 표시하지 못했습니다. 공지 채널에 직접 안내해 주세요."
         if not anchor_deleted or not substitutes_deleted:

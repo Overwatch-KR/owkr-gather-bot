@@ -9,7 +9,7 @@ from discord.ext import commands
 
 from src.application.rendering import (
     RecruitmentTemplateRenderer,
-    format_discord_timestamp,
+    format_match_time,
 )
 from src.config import AppConfig
 from src.domain.models import MatchSession
@@ -72,7 +72,7 @@ class DiscordRecruitmentPublisher:
         role_mention = f"<@&{role_id}> " if role_id else ""
         lead = (
             f"{role_mention}<@{session.manager_user_id}>님이 여는 "
-            f"**{format_discord_timestamp(session.starts_at, 't')} 내전**"
+            f"{format_match_time(session.starts_at)} 내전"
         )
         message = await channel.send(
             content=lead,

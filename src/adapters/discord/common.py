@@ -7,7 +7,7 @@ from typing import Callable, Sequence, TypeVar
 import discord
 from discord import app_commands
 
-from src.application.rendering import format_discord_timestamp
+from src.application.rendering import format_match_time
 from src.config import AppConfig
 from src.domain.models import MatchSession, MatchStatus
 
@@ -136,7 +136,7 @@ def build_recruitment_embed(
     embed.add_field(
         name="📝 티어 작성 마감",
         value=(
-            f"{format_discord_timestamp(session.tier_deadline_at, 't')}\n"
+            f"{format_match_time(session.tier_deadline_at)}\n"
             f"모집 완료 후 <#{session.tier_channel_id}> 안내에 답장"
         ),
         inline=True,
@@ -144,7 +144,7 @@ def build_recruitment_embed(
     embed.add_field(
         name="🔊 대기실 입장",
         value=(
-            f"{format_discord_timestamp(session.lobby_at, 't')}\n"
+            f"{format_match_time(session.lobby_at)}\n"
             f"{session.lobby_name or config.defaults.lobby_name}"
         ),
         inline=True,
@@ -175,8 +175,7 @@ def build_substitute_recruitment_embed(session: MatchSession) -> discord.Embed:
     return discord.Embed(
         title="내전 대타 모집",
         description=(
-            f"**{format_discord_timestamp(session.starts_at, 'F')}** · "
-            f"{format_discord_timestamp(session.starts_at, 'R')}\n\n"
+            f"{format_match_time(session.starts_at)}\n\n"
             "이 메시지에 ✅ 반응하면 해당 내전의 대타 대기열에 등록됩니다.\n"
             "첫 **1명**이 등록되면 티어 작성 안내를 보내드립니다."
         ),

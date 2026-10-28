@@ -13,7 +13,7 @@ from discord.ext import commands
 
 from src.application.coordinator import SessionCoordinator
 from src.application.recruitment import RecruitmentService
-from src.application.rendering import KST, format_discord_timestamp, format_korean_time
+from src.application.rendering import KST, format_match_time, format_korean_time
 from src.application.tier_collector import TierCollector
 from src.config import AppConfig
 from src.domain.clock import Clock
@@ -366,7 +366,7 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
             message = await channel.send(
                 content=(
                     f"{role_mention}**"
-                    f"{format_discord_timestamp(session.starts_at, 't')} "
+                    f"{format_match_time(session.starts_at)} "
                     "내전 대타 1명 모집!**\n"
                     "참가하려면 아래 ✅을 눌러 주세요."
                 ),
@@ -534,7 +534,7 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
             session.mode or self._config.defaults.mode_display_fallback or "일반 내전"
         )
         return (
-            f"{local.month}/{local.day} {format_korean_time(local)} · "
+            f"{format_korean_time(local)} · "
             f"{manager_name} · {mode} · {session.match_code}"
         )
 
@@ -558,7 +558,7 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
             await message.edit(
                 content=(
                     "**내전 취소**\n"
-                    f"{format_discord_timestamp(session.starts_at, 'F')} 내전이 취소되었습니다.\n"
+                    f"{format_match_time(session.starts_at)} 내전이 취소되었습니다.\n"
                     "이 공지에서는 더 이상 참가 신청을 받지 않습니다."
                 ),
                 embed=None,
