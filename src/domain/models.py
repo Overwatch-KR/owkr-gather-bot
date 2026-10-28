@@ -73,6 +73,7 @@ class MatchSession:
     lobby_at: datetime
     created_at: datetime
     updated_at: datetime
+    recruitment_cancel_at: datetime | None = None
     source_request_id: str | None = None
     source_request_type: str | None = None
     lobby_voice_channel_id: int | None = None
@@ -94,8 +95,20 @@ class MatchSession:
             MatchStatus.FULL,
         }
 
+    def recruitment_expired_at(self, now: datetime) -> bool:
+        """최초 모집 완료 전까지만 선택한 모집 마감을 적용한다."""
+        return (
+            self.recruitment_cancel_at is not None
+            and now >= self.recruitment_cancel_at
+            and self.full_reached_at is None
+        )
+
     def accepts_activity_at(self, activity_at: datetime) -> bool:
-        return self.is_automatic() and activity_at < self.starts_at
+        return (
+            self.is_automatic()
+            and activity_at < self.starts_at
+            and not self.recruitment_expired_at(activity_at)
+        )
 
     def accepts_tier_activity_at(self, activity_at: datetime) -> bool:
         """모집 완료 전송 시각은 포함하고 마감·시작 시각은 포함하지 않는다."""
@@ -235,3 +248,18 @@ class NotificationRecord:
     status: NotificationStatus
     attempts: int
     next_attempt_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CancellationJob:
+    """종료 내전 삭제 후에도 정리 재시도에 필요한 최소 메시지 정보만 보관한다."""
+    match_id: str
+    guild_id: int
+    announcement_channel_id: int
+    announcement_message_id: int
+    tier_channel_id: int
+    tier_anchor_message_id: int | None
+    starts_at: datetime
+    lobby_name: str | None
+    substitute_message_ids: tuple[int, ...] = ()
+    notice_sent: bool = False

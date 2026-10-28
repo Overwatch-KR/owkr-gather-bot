@@ -8,6 +8,7 @@ from src.ports.persistence import MutationWriter
 from src.ports.repositories import NotificationRepository
 
 from .coordinator import SessionCoordinator
+from .cancellation import CancellationWorker
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class MatchScheduler:
         self._clock = clock
         self._interval = interval_seconds
         self._task: asyncio.Task[None] | None = None
+        self.cancellation_worker: CancellationWorker | None = None
 
     def start(self) -> None:
         if self._task is None:
@@ -45,12 +47,16 @@ class MatchScheduler:
 
     async def tick(self) -> None:
         sessions = self._coordinator.active_sessions
-        if not sessions:
-            return
         now = self._clock.now()
         await self._writer.flush()
         for session in sessions:
             try:
+                if session.recruitment_expired_at(now):
+                    canceled = await self._coordinator.cancel_match(
+                        session.id, queue_cleanup=True, only_if_recruitment_expired=True,
+                    )
+                    if canceled is not None:
+                        continue
                 if now >= session.starts_at:
                     await self._coordinator.start_match(session.id)
                     continue
@@ -62,6 +68,9 @@ class MatchScheduler:
                     session.id,
                     session.match_code,
                 )
+
+        if self.cancellation_worker is not None:
+            await self.cancellation_worker.process_once()
 
     async def _run(self) -> None:
         while True:

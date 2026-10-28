@@ -64,4 +64,6 @@ def test_event_handlers_are_registered_after_separating_the_cog():
         "on_raw_message_edit",
         "on_raw_message_delete",
         "on_raw_bulk_message_delete",
+        "on_ready",
+        "on_resumed",
     }

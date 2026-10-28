@@ -202,6 +202,30 @@ class DiscordEventHandlers:
             )
 
     @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        await self._reconcile_deleted_announcements()
+
+    @commands.Cog.listener()
+    async def on_resumed(self) -> None:
+        await self._reconcile_deleted_announcements()
+
+    async def _reconcile_deleted_announcements(self) -> None:
+        """중단 중 유실된 삭제 이벤트는 확실한 NotFound만 취소로 보완한다."""
+        async with self._announcement_reconcile_lock:
+            for session in self._coordinator.active_sessions:
+                if session.announcement_message_id is None or self._clock.now() >= session.starts_at:
+                    continue
+                try:
+                    channel = self.bot.get_channel(session.announcement_channel_id)
+                    if channel is None:
+                        channel = await self.bot.fetch_channel(session.announcement_channel_id)
+                    await channel.fetch_message(session.announcement_message_id)
+                except discord.NotFound:
+                    await self._coordinator.cancel_match(session.id, queue_cleanup=True)
+                except discord.HTTPException:
+                    logger.warning("announcement existence check deferred match_id=%s", session.id, exc_info=True)
+
+    @commands.Cog.listener()
     async def on_raw_message_delete(
         self, payload: discord.RawMessageDeleteEvent
     ) -> None:
@@ -234,10 +258,18 @@ class DiscordEventHandlers:
         channel_id: int,
         discord_message_id: int,
     ) -> None:
-        if (
-            guild_id != self._config.guild_id
-            or channel_id != self._config.channels.tier
-        ):
+        if guild_id != self._config.guild_id:
+            return
+        if channel_id == self._config.channels.announcement:
+            actor = self._coordinator.actor_for_announcement(discord_message_id)
+            if (
+                actor is not None
+                and actor.session.announcement_message_id == discord_message_id
+                and self._clock.now() < actor.session.starts_at
+            ):
+                await self._coordinator.cancel_match(actor.session.id, queue_cleanup=True)
+                return
+        if channel_id != self._config.channels.tier:
             return
         now = self._clock.now()
         recreated = await self._repository.request_tier_anchor_recreation(

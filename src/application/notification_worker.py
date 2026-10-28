@@ -83,6 +83,12 @@ class NotificationWorker:
             session = await self._repository.get_match(notification.match_id)
             if session is None or not session.is_automatic():
                 raise RuntimeError("match is no longer active")
+            if session.recruitment_expired_at(self._clock.now()):
+                canceled = await self._coordinator.cancel_match(
+                    session.id, queue_cleanup=True, only_if_recruitment_expired=True,
+                )
+                if canceled is not None:
+                    return
             if self._clock.now() >= session.starts_at:
                 await self._coordinator.start_match(notification.match_id)
                 return

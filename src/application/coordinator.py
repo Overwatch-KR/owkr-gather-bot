@@ -18,7 +18,7 @@ from src.domain.models import (
     SubstituteRecruitment,
 )
 from src.domain.settings import AppConfig
-from src.parsing.match_command import ParsedMatchCommand
+from src.parsing.match_command import ParsedMatchCommand, CommandParseError
 from src.ports.persistence import MutationWriter
 from src.ports.repositories import SessionRepository
 
@@ -145,7 +145,7 @@ class SessionCoordinator:
         sessions = await self._repository.get_active_matches(self._config.guild_id)
         restored = 0
         for session in sessions:
-            if session.starts_at <= self._clock.now():
+            if session.starts_at <= self._clock.now() and not session.recruitment_expired_at(self._clock.now()):
                 await self._repository.mark_started(session.id, self._clock.now())
                 logger.info("stale active session marked started match_id=%s", session.id)
                 continue
@@ -208,6 +208,10 @@ class SessionCoordinator:
                 if existing is not None:
                     raise DuplicateSourceRequest(existing)
 
+            now = self._clock.now()
+            deadline = request.parsed.recruitment_cancel_at
+            if request.parsed.starts_at <= now or (deadline is not None and not now < deadline < request.parsed.starts_at):
+                raise CommandParseError("시작·취소 시각이 지났거나 순서가 잘못되었습니다. 미래 시각으로 다시 입력해 주세요.")
             starts_at = request.parsed.starts_at.astimezone(timezone.utc)
             match_code = await self._new_match_code()
             now = self._clock.now()
@@ -227,6 +231,7 @@ class SessionCoordinator:
                 participant_limit=self._config.defaults.participant_limit,
                 status=MatchStatus.CREATED,
                 starts_at=starts_at,
+                recruitment_cancel_at=deadline.astimezone(timezone.utc) if deadline else None,
                 tier_deadline_at=request.parsed.tier_deadline_at.astimezone(timezone.utc),
                 lobby_at=request.parsed.lobby_at.astimezone(timezone.utc),
                 lobby_voice_channel_id=lobby_voice_channel_id,
@@ -285,7 +290,10 @@ class SessionCoordinator:
                 announcement_message_id,
             )
 
-    async def cancel_match(self, match_id: str) -> MatchSession | None:
+    async def cancel_match(
+        self, match_id: str, *, queue_cleanup: bool = False,
+        only_if_recruitment_expired: bool = False,
+    ) -> MatchSession | None:
         """DB를 먼저 취소해 남은 writer 변경이 취소된 내전을 되살리지 못하게 한다."""
         async with self._lifecycle_lock:
             session = self._session_by_id(match_id)
@@ -294,7 +302,17 @@ class SessionCoordinator:
                 if stored is None or not stored.is_automatic():
                     return None
                 session = stored
-            await self._repository.cancel_match(session.id, self._clock.now())
+            if only_if_recruitment_expired:
+                actor = self._actors.get(session.id)
+                if actor is not None:
+                    await actor.drain()
+                await self._writer.flush()
+                if not session.recruitment_expired_at(self._clock.now()):
+                    return None
+            if queue_cleanup:
+                await self._repository.cancel_match(session.id, self._clock.now(), queue_cleanup=True)
+            else:
+                await self._repository.cancel_match(session.id, self._clock.now())
             actor = self._actors.pop(session.id, None)
             if actor is not None:
                 await actor.stop(discard=True)

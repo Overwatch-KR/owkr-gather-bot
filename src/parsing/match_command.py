@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -31,6 +31,7 @@ class ParsedMatchCommand:
     tier_deadline_at: datetime
     lobby_at: datetime
     mode: str | None
+    recruitment_cancel_at: datetime | None = None
 
 
 class MatchCommandParser:
@@ -74,6 +75,20 @@ class MatchCommandParser:
         if starts_at <= now_kst:
             raise PastTimeError("입력한 시각이 이미 지났습니다.")
         return result
+
+    def with_cancellation_time(
+        self, parsed: ParsedMatchCommand, value: str | None, *, now: datetime
+    ) -> ParsedMatchCommand:
+        if not value or not value.strip():
+            return replace(parsed, recruitment_cancel_at=None)
+        match = _TIME_PATTERN.fullmatch(unicodedata.normalize("NFKC", value.strip()))
+        if match is None:
+            raise CommandParseError("취소 시각에는 시간만 입력해 주세요. 예: 오후 7시 30분, 19:30")
+        hour, minute = self._extract_time(match)
+        deadline = parsed.starts_at.astimezone(KST).replace(hour=hour, minute=minute)
+        if not now.astimezone(KST) < deadline < parsed.starts_at:
+            raise CommandParseError("취소 시각은 현재보다 늦고 내전 시작보다 빨라야 합니다. 시간을 다시 확인해 주세요.")
+        return replace(parsed, recruitment_cancel_at=deadline)
 
     def _build(self, starts_at: datetime, mode: str | None) -> ParsedMatchCommand:
         return ParsedMatchCommand(

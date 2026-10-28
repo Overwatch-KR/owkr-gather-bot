@@ -1,6 +1,8 @@
 """실행 시 사용하는 유일한 객체 조립 지점. 네트워크 연결은 bot.run 이후에 시작한다."""
 
 from src.adapters.discord.bot import GatherBot
+from src.adapters.discord.cancellation import DiscordCancellationTransport
+from src.application.cancellation import CancellationWorker
 from src.adapters.discord.transport import (
     DiscordNotificationTransport,
     DiscordRecruitmentPublisher,
@@ -36,6 +38,9 @@ def build_bot(config: RuntimeConfig) -> GatherBot:
         migration_path=config.working_directory / "migrations/001_initial.sql",
     )
     bot = GatherBot(config=config.app, runtime=runtime, clock=clock)
+    runtime.scheduler.cancellation_worker = CancellationWorker(
+        repository, DiscordCancellationTransport(bot), config.app.guild_id,
+    )
     runtime.recruitment = RecruitmentService(
         coordinator,
         DiscordRecruitmentPublisher(
