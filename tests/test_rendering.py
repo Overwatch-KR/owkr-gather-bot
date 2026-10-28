@@ -12,7 +12,7 @@ from src.adapters.discord_adapter import (
     allowed_mentions_for,
     build_recruitment_embed,
 )
-from src.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer
+from src.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer, format_match_time
 from src.domain.models import (
     NotificationKind,
     NotificationRecord,
@@ -65,6 +65,15 @@ class RenderingTest(unittest.TestCase):
         self.assertNotIn("🎮 모드", [field.name for field in embed.fields])
         self.assertNotIn("@everyone", content)
 
+    def test_korean_time_handles_kst_day_boundary_noon_and_minutes(self) -> None:
+        for utc_hour, minute, expected in [
+            (15, 0, "오전 12시"), (3, 0, "오후 12시"),
+            (5, 0, "오후 2시"), (5, 30, "오후 2시 30분"),
+        ]:
+            with self.subTest(hour=utc_hour, minute=minute):
+                value = datetime(2026, 10, 28, utc_hour, minute, tzinfo=timezone.utc)
+                self.assertEqual(format_match_time(value), f"__**{expected}**__")
+
     def test_card_preserves_manager_rules_and_separates_schedule(self) -> None:
         config = make_config()
         session = make_session()
@@ -97,7 +106,7 @@ class RenderingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_recruitment_embed(config, "긴 본문" * 2000, make_session())
 
-    def test_recruitment_uses_native_discord_timestamps(self) -> None:
+    def test_public_times_use_korean_time_without_dates(self) -> None:
         template = Path(__file__).resolve().parents[1] / "templates" / "recruitment.txt"
         config = make_config()
         session = make_session()
@@ -107,15 +116,13 @@ class RenderingTest(unittest.TestCase):
         embed = build_recruitment_embed(config, recruitment, session)
         embed_payload = embed.to_dict()
         embed_text = str(embed_payload)
-        starts_at = int(session.starts_at.timestamp())
-        tier_deadline_at = int(session.tier_deadline_at.timestamp())
-        lobby_at = int(session.lobby_at.timestamp())
         self.assertEqual(embed.title, "⚔️ 내전 모집")
-        self.assertIn(f"<t:{starts_at}:F>", embed_text)
-        self.assertIn(f"<t:{starts_at}:R>", embed_text)
-        self.assertIn(f"<t:{tier_deadline_at}:t>", embed_text)
-        self.assertIn(f"<t:{lobby_at}:t>", embed_text)
+        self.assertIn("__**오후 8시**__", embed_text)
+        self.assertIn("__**오후 7시 30분**__", embed_text)
+        self.assertIn("__**오후 7시 50분**__", embed_text)
         self.assertNotIn("7월", embed_text)
+        self.assertNotIn("<t:", embed_text)
+        self.assertNotIn("`", embed_text)
         self.assertIn(f"첫 **{session.participant_limit}명**까지 확정", embed.description)
         self.assertEqual(
             embed.fields[2].value,
@@ -139,10 +146,11 @@ class RenderingTest(unittest.TestCase):
         ).render(notification, session).content
         self.assertNotIn("내전 코드", completion)
         self.assertNotIn(session.match_code, completion)
-        self.assertIn(f"<t:{starts_at}:F>", completion)
-        self.assertIn(f"<t:{starts_at}:R>", completion)
-        self.assertIn(f"**티어 작성 마감** · <t:{tier_deadline_at}:t>", completion)
-        self.assertIn(f"**대기실 입장** · <t:{lobby_at}:t>", completion)
+        self.assertIn("__**오후 8시**__", completion)
+        self.assertNotIn("<t:", completion)
+        self.assertNotIn("2026년", completion)
+        self.assertIn("**티어 작성 마감** · __**오후 7시 30분**__", completion)
+        self.assertIn("**대기실 입장** · __**오후 7시 50분**__", completion)
         self.assertIn("대기실 1번", completion)
 
     def test_lobby_reminder_uses_session_lobby_assignment(self) -> None:
@@ -348,7 +356,7 @@ class RenderingTest(unittest.TestCase):
         starts_at = now + timedelta(hours=1)
 
         self.assertNotIn("<@200>", rendered.content)
-        self.assertIn(f"<t:{int(starts_at.timestamp())}:F>", rendered.content)
+        self.assertIn(format_match_time(starts_at), rendered.content)
         self.assertIn("<#103>", rendered.content)
         self.assertEqual(rendered.allowed_user_ids, ())
 

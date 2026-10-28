@@ -115,8 +115,7 @@ def build_recruitment_complete_template(copy: RecruitmentCompleteCopy) -> str:
         f"\n\n{literal(copy.extra_notice)}" if copy.extra_notice else ""
     )
     return (
-        f"**{literal(copy.start_heading)}** · {{{{ starts_at }}}} "
-        f"({{{{ starts_in }}}})\n\n"
+        f"**{literal(copy.start_heading)}** · {{{{ starts_at }}}}\n\n"
         f"**{literal(copy.tier_heading)}**\n"
         f"{{{{ tier_channel }}}}에 {literal(copy.tier_instruction)}\n\n"
         f"{literal(copy.tier_format_example)}\n\n"

@@ -356,7 +356,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         cog._coordinator.cancel_match.assert_awaited_once_with(session.id)
         original.delete_original_response.assert_not_awaited()
         result = interaction.edit_original_response.await_args.kwargs
-        self.assertIn(f"<t:{int(session.starts_at.timestamp())}:F>", result["content"])
+        self.assertIn("__**오후 8시**__", result["content"])
         self.assertIn("내전이 취소되었습니다", result["content"])
         self.assertIsNone(result["view"])
         self.assertEqual(result["allowed_mentions"].to_dict()["parse"], [])
@@ -626,7 +626,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         channel.fetch_message.assert_awaited_once_with(1000)
         message.delete.assert_not_awaited()
         payload = message.edit.await_args.kwargs
-        self.assertIn(f"<t:{int(make_session().starts_at.timestamp())}:F>", payload["content"])
+        self.assertIn("__**오후 8시**__", payload["content"])
         self.assertIn("내전이 취소되었습니다", payload["content"])
         self.assertNotIn(make_session().match_code, payload["content"])
         self.assertIsNone(payload["embed"])
