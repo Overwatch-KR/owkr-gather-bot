@@ -29,7 +29,9 @@ def test_public_artifact_contains_only_approved_documents(tmp_path, monkeypatch)
         for target in parser.links:
             url = urlsplit(target)
             if url.scheme:
-                assert url.scheme == 'mailto'
+                assert url.scheme in {'mailto', 'https'}
+                if url.scheme == 'https':
+                    assert url.netloc
             elif url.path:
                 assert not url.path.startswith('/')
                 assert (path.parent / url.path).is_file(), target

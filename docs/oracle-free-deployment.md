@@ -264,6 +264,34 @@ docker compose ps
 
 ## 10. 테스트 서버 체험 순서
 
+### 운영 시간 자동 조정
+
+파일럿의 한국 시간 운영 일정은 월~목 20:00~다음 날 02:00, 금~일 24시간이다.
+일요일에서 월요일 새벽 02:00까지 이어지며, 목요일 20:00부터는 주말 동안 계속
+실행한다. VM과 영구 디스크는 켜 둔 채 봇 컨테이너만 정상 종료·시작한다.
+`scripts/operating-hours.sh`가 VM 시간대와 무관하게 Asia/Seoul 시각을 확인한다.
+최대 약 1분의 전환 지연과 재부팅 직후 잠깐의 실행이 있을 수 있다.
+
+백업과 시간 조정 서비스는 `/run/lock/owkr-gather-bot-operations.lock`을 공유한다.
+아래 service·timer의 경로를 실제 설치 위치에 맞춘 뒤 두 서비스 모두 갱신한다.
+
+```bash
+sudo install -m 644 deploy/systemd/owkr-backup.service /etc/systemd/system/
+sudo install -m 644 deploy/systemd/owkr-hours.service /etc/systemd/system/
+sudo install -m 644 deploy/systemd/owkr-hours.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now owkr-hours.timer
+sudo systemctl start owkr-hours.service
+sudo systemctl list-timers owkr-hours.timer owkr-backup.timer
+```
+
+비운영 시간에는 명령·반응·티어·알림·정리도 중단된다. 중지 중 시작된 내전 기록은
+다음 가동 시 정리되며, 누락된 알림을 모두 소급 전송한다고 보장하지 않는다.
+관리자가 이 시간대의 내전을 수동 진행할지 판단한다. 개인정보 문의는 이메일로 받는다.
+배포·복원·수동 테스트 전에는 두 타이머를 잠시 멈추고 실행 중인 서비스도 종료될
+때까지 기다린다. 작업 후 타이머를 다시 시작하고 `owkr-hours.service`를 실행하여
+현재 일정에 맞춘다. 타이머와 별개로 직접 백업·배포를 동시에 실행하지 않는다.
+
 정식 운영 전에 다음 순서로 관리자 체험을 진행한다.
 
 1. `/내전`으로 미래 시각 내전을 생성한다.

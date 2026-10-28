@@ -7,6 +7,7 @@ import shutil
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / '_site'
 PAGES = [('privacy', '개인정보처리방침'), ('terms', '이용약관'), ('contact', '문의'), ('deletion', '삭제 요청')]
+REVIEW_DATE = '2026-10-28'
 
 
 def inline(value):
@@ -74,7 +75,7 @@ def page(slug, title, body):
 <meta name="robots" content="noindex"><meta name="description" content="OWKR Gather Bot의 개인정보, 이용약관, 문의 및 삭제 요청 안내">
 <title>{escape(title)} · OWKR Gather Bot</title><link rel="stylesheet" href="style.css"></head>
 <body><a class="skip" href="#content">본문으로 이동</a><header><a class="brand" href="index.html">OWKR Gather Bot</a><nav aria-label="안내 문서">{nav}</nav></header>
-<main id="content">{body}</main><footer>운영 담당 qtaghdi · <a href="mailto:qtaghdi@gmail.com">qtaghdi@gmail.com</a><br>최종 검토일 2026-10-27 · 정책 시행일 미정</footer></body></html>'''
+<main id="content">{body}</main><footer>운영 담당 qtaghdi · <a href="mailto:qtaghdi@gmail.com">qtaghdi@gmail.com</a><br>최종 검토일 {REVIEW_DATE} · 정책 시행일 미정</footer></body></html>'''
 
 
 def build():
@@ -108,7 +109,7 @@ Discord 접속이나 DM이 어려우면 이메일을 이용해 주세요. 공개
     for slug, title in PAGES:
         (OUT / f'{slug}.html').write_text(page(slug, title, content[slug]))
     links = '\n'.join(f'<li><a href="{slug}.html">{title}</a></li>' for slug, title in PAGES)
-    home = f'''<h1>이용 안내</h1><p>OWKR Gather Bot의 개인정보 처리, 이용약관과 문의·삭제 요청 방법을 안내합니다.</p><p class="notice">개인정보처리방침과 이용약관은 현재 검토 중인 초안입니다. 운영 환경·로그 및 백업 보관 절차·시행일은 확정 후 갱신합니다.</p><ul class="documents">{links}</ul><p>온라인 접수 양식 없이 이메일 또는 Discord 비공개 메시지로 문의를 받습니다.</p>'''
+    home = f'''<h1>이용 안내</h1><p>OWKR Gather Bot의 개인정보 처리, 이용약관과 문의·삭제 요청 방법을 안내합니다.</p><p class="notice">개인정보처리방침과 이용약관은 현재 검토 중인 초안입니다. 도쿄 서버와 백업 검사 결과를 반영했으며, 보관 기한·국외 이전 고지·법정 표시·시행일은 최종 확인이 남아 있습니다. 초안 게시가 개인정보 처리 동의를 대신하지 않습니다.</p><ul class="documents">{links}</ul><p>온라인 접수 양식 없이 이메일 또는 Discord 비공개 메시지로 문의를 받습니다. 봇이 쉬는 시간에도 이메일로 요청할 수 있습니다.</p>'''
     (OUT / 'index.html').write_text(page('index', '이용 안내', home))
     (OUT / '.nojekyll').touch()
     print('Built public documents in _site (5 pages and stylesheet).')

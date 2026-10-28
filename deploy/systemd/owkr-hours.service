@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconcile OWKR Gather Bot operating hours
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/owkr-gather-bot
+ExecStart=/usr/bin/flock --wait 60 /run/lock/owkr-gather-bot-operations.lock /bin/sh /home/ubuntu/owkr-gather-bot/scripts/operating-hours.sh
+UMask=0077
+TimeoutStartSec=3min

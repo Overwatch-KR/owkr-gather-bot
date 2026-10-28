@@ -1,0 +1,10 @@
+[Unit]
+Description=Check OWKR Gather Bot operating hours every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=owkr-hours.service
+
+[Install]
+WantedBy=timers.target
