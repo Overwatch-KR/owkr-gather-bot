@@ -41,6 +41,11 @@ def format_korean_time(value) -> str:
     return f"{period} {hour}시{minute}"
 
 
+def format_lobby_target(channel_id: int | None, name: str) -> str:
+    """설정된 음성방은 클릭 가능한 채널 멘션으로, 과거 미설정 기록은 이름으로 표시한다."""
+    return f"<#{channel_id}>" if channel_id is not None else name
+
+
 def format_match_time(value: datetime) -> str:
     """공개 일정은 접속자의 언어·시간대와 관계없이 한국 시간으로 표시한다."""
     return f"__**{format_korean_time(value)}**__"
@@ -68,7 +73,10 @@ class RecruitmentTemplateRenderer:
             participation_notice=self._config.messages.participation_notice,
             tier_deadline_display=format_match_time(session.tier_deadline_at),
             lobby_display=format_match_time(session.lobby_at),
-            lobby_name=session.lobby_name or self._config.defaults.lobby_name,
+            lobby_name=format_lobby_target(
+                session.lobby_voice_channel_id or self._config.defaults.lobby_voice_channel_id,
+                session.lobby_name or self._config.defaults.lobby_name,
+            ),
             tier_channel_mention=f"<#{session.tier_channel_id}>",
             manager_rules=manager.render_rules(),
             tier_notice=self._config.messages.tier_notice,
@@ -148,7 +156,10 @@ class NotificationRenderer:
             tier_channel_id=session.tier_channel_id,
             tier_deadline_at=session.tier_deadline_at,
             lobby_at=session.lobby_at,
-            lobby_name=session.lobby_name or self._config.defaults.lobby_name,
+            lobby_name=format_lobby_target(
+                session.lobby_voice_channel_id or self._config.defaults.lobby_voice_channel_id,
+                session.lobby_name or self._config.defaults.lobby_name,
+            ),
         )
 
     def render_recruitment_complete_preview(
@@ -167,7 +178,9 @@ class NotificationRenderer:
             - timedelta(minutes=self._config.defaults.tier_deadline_offset_minutes),
             lobby_at=starts_at
             - timedelta(minutes=self._config.defaults.lobby_offset_minutes),
-            lobby_name=self._config.defaults.lobby_name,
+            lobby_name=format_lobby_target(
+                self._config.defaults.lobby_voice_channel_id, self._config.defaults.lobby_name,
+            ),
         )
 
     def _render_recruitment_complete(
@@ -269,7 +282,7 @@ class NotificationRenderer:
                 f"**내전 시작** · {format_match_time(session.starts_at)}\n\n"
             )
             content_after_mentions = (
-                f"\n\n📢 **{session.lobby_name or self._config.defaults.lobby_name}**으로 "
+                f"\n\n📢 {format_lobby_target(session.lobby_voice_channel_id or self._config.defaults.lobby_voice_channel_id, session.lobby_name or self._config.defaults.lobby_name)}으로 "
                 "입장해 주세요."
             )
             content = (

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import discord
 
 from src.application.coordinator import DuplicateSourceRequest, LobbyCapacityExceeded
-from src.application.rendering import format_match_time, format_korean_time
+from src.application.rendering import format_match_time, format_korean_time, format_lobby_target
 from src.domain.models import MatchSession
 from src.parsing.match_command import (
     CommandParseError,
@@ -136,7 +136,8 @@ class CreateMatchConfirmationView(discord.ui.View):
             or "일반 내전"
         )
         try:
-            _, lobby_name = self._cog._coordinator.lobby_assignment_for(self._parsed.starts_at)
+            lobby_id, lobby_name = self._cog._coordinator.lobby_assignment_for(self._parsed.starts_at)
+            lobby_name = format_lobby_target(lobby_id, lobby_name)
         except LobbyCapacityExceeded:
             lobby_name = "현재 빈 대기실 없음 · 시간을 변경해 주세요"
         return (
@@ -318,7 +319,7 @@ class CancelMatchConfirmationView(discord.ui.View):
                 allowed_mentions=allowed_mentions_for([]),
             )
             return
-        announcement_updated = await self._cog._mark_announcement_canceled(canceled)
+        notice_sent, announcement_deleted = await self._cog._replace_announcement_with_cancellation(canceled)
         anchor_deleted = await self._cog._delete_tier_anchor_message(canceled)
         substitutes_deleted = (
             await self._cog._delete_substitute_recruitment_messages(
@@ -329,9 +330,9 @@ class CancelMatchConfirmationView(discord.ui.View):
             else True
         )
         result = f"{format_match_time(canceled.starts_at)} 내전이 취소되었습니다."
-        if not announcement_updated:
+        if not notice_sent:
             result += "\n모집 공지에 취소 안내를 표시하지 못했습니다. 공지 채널에 직접 안내해 주세요."
-        if not anchor_deleted or not substitutes_deleted:
+        if not announcement_deleted or not anchor_deleted or not substitutes_deleted:
             result += (
                 "\n일부 봇 메시지를 지우지 못했습니다. "
                 "봇의 채널 보기·메시지 기록 보기 권한을 확인하고 남은 메시지를 직접 정리해 주세요."

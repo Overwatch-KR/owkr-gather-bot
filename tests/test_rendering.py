@@ -12,7 +12,7 @@ from src.adapters.discord_adapter import (
     allowed_mentions_for,
     build_recruitment_embed,
 )
-from src.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer, format_match_time
+from src.application.rendering import NotificationRenderer, RecruitmentTemplateRenderer, format_match_time, format_lobby_target
 from src.domain.models import (
     NotificationKind,
     NotificationRecord,
@@ -64,6 +64,19 @@ class RenderingTest(unittest.TestCase):
         embed = build_recruitment_embed(make_config(), content, session)
         self.assertNotIn("🎮 모드", [field.name for field in embed.fields])
         self.assertNotIn("@everyone", content)
+
+    def test_lobby_target_is_clickable_and_keeps_legacy_name_fallback(self) -> None:
+        self.assertEqual(format_lobby_target(105, "대기실1"), "<#105>")
+        self.assertEqual(format_lobby_target(None, "과거 대기실"), "과거 대기실")
+        config = make_config()
+        first = make_session()
+        first.lobby_voice_channel_id = 105
+        second = make_session()
+        second.lobby_voice_channel_id = 106
+        for session, expected, other in [(first, 105, 106), (second, 106, 105)]:
+            embed = build_recruitment_embed(config, "참가 안내", session)
+            self.assertIn(f"<#{expected}>", embed.fields[1].value)
+            self.assertNotIn(f"<#{other}>", embed.fields[1].value)
 
     def test_korean_time_handles_kst_day_boundary_noon_and_minutes(self) -> None:
         for utc_hour, minute, expected in [
@@ -151,7 +164,7 @@ class RenderingTest(unittest.TestCase):
         self.assertNotIn("2026년", completion)
         self.assertIn("**티어 작성 마감** · __**오후 7시 30분**__", completion)
         self.assertIn("**대기실 입장** · __**오후 7시 50분**__", completion)
-        self.assertIn("대기실 1번", completion)
+        self.assertIn("<#105>", completion)
 
     def test_lobby_reminder_uses_session_lobby_assignment(self) -> None:
         session = make_session()
@@ -174,7 +187,7 @@ class RenderingTest(unittest.TestCase):
         ).render(notification, session)
 
         self.assertEqual(rendered.voice_channel_id, 106)
-        self.assertIn("대기실 2번", rendered.content)
+        self.assertIn("<#106>", rendered.content)
         self.assertNotIn(session.match_code, rendered.content)
 
     def test_tier_missing_reminder_mentions_only_payload_users(self) -> None:
@@ -255,7 +268,7 @@ class RenderingTest(unittest.TestCase):
         self.assertEqual(filtered.allowed_user_ids, (2, 3))
         self.assertNotIn("<@1>", filtered.content)
         self.assertIn("<@2> <@3>", filtered.content)
-        self.assertIn("대기실 1번", filtered.content)
+        self.assertIn("<#105>", filtered.content)
 
     def test_tier_announcement_omits_public_match_code(self) -> None:
         session = make_session()
