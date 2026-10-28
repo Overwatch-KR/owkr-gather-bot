@@ -542,9 +542,9 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
     def _match_status_time_label(session: MatchSession) -> str:
         return format_korean_time(session.starts_at.astimezone(KST))
 
-    async def _delete_announcement_message(self, session: MatchSession) -> bool:
+    async def _mark_announcement_canceled(self, session: MatchSession) -> bool:
         if session.announcement_message_id is None:
-            return True
+            return False
         try:
             channel = self.bot.get_channel(session.announcement_channel_id)
             if channel is None:
@@ -554,13 +554,22 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
                     f"channel {session.announcement_channel_id} is not messageable"
                 )
             message = await channel.fetch_message(session.announcement_message_id)
-            await message.delete()
+            # 같은 공지를 덮어써 재시도해도 취소 안내가 중복 게시되지 않는다.
+            await message.edit(
+                content=(
+                    "**내전 취소**\n"
+                    f"{format_discord_timestamp(session.starts_at, 'F')} 내전이 취소되었습니다.\n"
+                    "이 공지에서는 더 이상 참가 신청을 받지 않습니다."
+                ),
+                embed=None,
+                allowed_mentions=allowed_mentions_for([]),
+            )
             return True
         except discord.NotFound:
-            return True
+            return False
         except (discord.Forbidden, discord.HTTPException, TypeError):
             logger.warning(
-                "failed to delete canceled recruitment message match_id=%s channel_id=%s message_id=%s",
+                "failed to mark recruitment message canceled match_id=%s channel_id=%s message_id=%s",
                 session.id,
                 session.announcement_channel_id,
                 session.announcement_message_id,

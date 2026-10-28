@@ -331,7 +331,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("같은 시작 시각", content)
         self.assertIn("시간을 변경", content)
 
-    async def test_cancel_confirmation_removes_ephemeral_result_after_cleanup(
+    async def test_cancel_confirmation_retains_start_time_after_cleanup(
         self,
     ) -> None:
         original = MagicMock(spec=discord.Interaction)
@@ -342,7 +342,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         cog._coordinator = SimpleNamespace(
             cancel_match=AsyncMock(return_value=session)
         )
-        cog._delete_announcement_message = AsyncMock(return_value=True)
+        cog._mark_announcement_canceled = AsyncMock(return_value=True)
         cog._delete_tier_anchor_message = AsyncMock(return_value=True)
         view = CancelMatchConfirmationView(cog, original, session)
         interaction = SimpleNamespace(
@@ -354,8 +354,46 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         await view.children[0].callback(interaction)
 
         cog._coordinator.cancel_match.assert_awaited_once_with(session.id)
-        original.delete_original_response.assert_awaited_once_with()
-        interaction.edit_original_response.assert_not_awaited()
+        original.delete_original_response.assert_not_awaited()
+        result = interaction.edit_original_response.await_args.kwargs
+        self.assertIn(f"<t:{int(session.starts_at.timestamp())}:F>", result["content"])
+        self.assertIn("내전이 취소되었습니다", result["content"])
+        self.assertIsNone(result["view"])
+        self.assertEqual(result["allowed_mentions"].to_dict()["parse"], [])
+        await view.children[0].callback(interaction)
+        cog._coordinator.cancel_match.assert_awaited_once_with(session.id)
+
+    async def test_cancel_notice_failure_keeps_cancellation_and_guides_manager(self) -> None:
+        session = make_session()
+        cog = object.__new__(GatherCog)
+        cog._coordinator = SimpleNamespace(cancel_match=AsyncMock(return_value=session))
+        cog._mark_announcement_canceled = AsyncMock(return_value=False)
+        cog._delete_tier_anchor_message = AsyncMock(return_value=False)
+        original = SimpleNamespace(user=SimpleNamespace(id=200))
+        view = CancelMatchConfirmationView(cog, original, session)
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=200),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+        await view.children[0].callback(interaction)
+        content = interaction.edit_original_response.await_args.kwargs["content"]
+        self.assertIn("내전이 취소되었습니다", content)
+        self.assertIn("공지 채널에 직접 안내", content)
+        self.assertIn("남은 메시지를 직접 정리", content)
+        cog._coordinator.cancel_match.assert_awaited_once_with(session.id)
+
+    async def test_cancel_notice_forbidden_is_reported_without_deleting_message(self) -> None:
+        message = MagicMock(spec=discord.Message)
+        message.edit = AsyncMock(side_effect=discord.Forbidden(MagicMock(), "forbidden"))
+        message.delete = AsyncMock()
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.fetch_message = AsyncMock(return_value=message)
+        cog = object.__new__(GatherCog)
+        cog.bot = MagicMock()
+        cog.bot.get_channel.return_value = channel
+        self.assertFalse(await cog._mark_announcement_canceled(make_session()))
+        message.delete.assert_not_awaited()
 
     async def test_match_autocomplete_returns_short_code_instead_of_uuid(
         self,
@@ -571,9 +609,10 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
             800,
         )
 
-    async def test_cancel_cleanup_deletes_the_bot_announcement(self) -> None:
+    async def test_cancel_replaces_announcement_with_time_and_no_mentions(self) -> None:
         message = MagicMock(spec=discord.Message)
         message.delete = AsyncMock()
+        message.edit = AsyncMock()
         channel = MagicMock(spec=discord.TextChannel)
         channel.fetch_message = AsyncMock(return_value=message)
         bot = MagicMock()
@@ -581,13 +620,19 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         cog = object.__new__(GatherCog)
         cog.bot = bot
-        deleted = await cog._delete_announcement_message(make_session())
+        deleted = await cog._mark_announcement_canceled(make_session())
 
         self.assertTrue(deleted)
         channel.fetch_message.assert_awaited_once_with(1000)
-        message.delete.assert_awaited_once_with()
+        message.delete.assert_not_awaited()
+        payload = message.edit.await_args.kwargs
+        self.assertIn(f"<t:{int(make_session().starts_at.timestamp())}:F>", payload["content"])
+        self.assertIn("내전이 취소되었습니다", payload["content"])
+        self.assertNotIn(make_session().match_code, payload["content"])
+        self.assertIsNone(payload["embed"])
+        self.assertEqual(payload["allowed_mentions"].to_dict()["parse"], [])
 
-    async def test_missing_announcement_is_already_clean(self) -> None:
+    async def test_missing_announcement_cannot_display_cancellation(self) -> None:
         bot = MagicMock()
         bot.get_channel.return_value = MagicMock(spec=discord.TextChannel)
         channel = bot.get_channel.return_value
@@ -596,7 +641,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         cog = object.__new__(GatherCog)
         cog.bot = bot
 
-        self.assertTrue(await cog._delete_announcement_message(make_session()))
+        self.assertFalse(await cog._mark_announcement_canceled(make_session()))
 
 
 if __name__ == "__main__":
