@@ -325,7 +325,7 @@ Discord 원문·기존 로그·백업은 버튼으로 지워지지 않습니다.
 서버 관리자에게 비공개 문의하도록 안내합니다. 예제의 담당자는 개발자 겸 내전 총관리자
 qtaghdi이며 이메일은 qtaghdi@gmail.com, 보조 경로는 Discord `qtaghdi`의 DM입니다.
 운영 설정의 `policy.support_contact`에도 반영해야 합니다. 법정 책임자 표시 요건과
-도쿄 VM·오전 6시 백업·수동 Mac 복사본과 확인한 보호 조치는 [정책 대조 기록](docs/legal/review-2026-10-28.md)에 정리했습니다. 로그는 용량 제한이며, 로그·백업·문의 자료의 일수 기준 보관 기한과 국외 이전 등 최종 고지 사항은 [문서 관리 안내](docs/legal/README.md)의 미완료 항목으로 유지합니다.
+도쿄 VM·오전 6시 백업·수동 Mac 복사본과 확인한 보호 조치는 [정책 대조 기록](https://github.com/Overwatch-KR/owkr-docs/blob/main/docs/gather-bot/review-2026-10-28.md)에 정리했습니다. 로그는 용량 제한이며, 로그·백업·문의 자료의 일수 기준 보관 기한과 국외 이전 등 최종 고지 사항은 [문서 관리 안내](docs/legal/README.md)의 미완료 항목으로 유지합니다.
 
 ## 자동 테스트
 

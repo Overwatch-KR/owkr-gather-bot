@@ -1,32 +1,24 @@
-# 공개 안내 웹 (GitHub Pages)
+# 공개 정책 사이트 이전
 
-봇 서버와 별도로 운영하는 정적 문서 사이트다. 로그인·접수 폼·DB·분석 스크립트·외부 폰트는 사용하지 않는다. 문의와 삭제 요청은 이메일 또는 Discord DM으로 받는다.
+정책 사이트와 원본은 [OWKR Docs](https://overwatch-kr.github.io/owkr-docs/gather-bot)에서 함께 관리합니다.
+기존 `https://overwatch-kr.github.io/owkr-gather-bot/` 주소를 사용하는 링크를 위해
+이 저장소의 Pages는 이동 안내만 유지합니다. 정책 본문·스타일을 별도로 관리하거나 배포하지 않습니다.
 
-## 문서와 배포
+## 기존 주소 호환
 
-- `docs/legal/privacy.md`, `terms.md`, `support.md`: 정책과 삭제 요청 안내 원본
-- `scripts/build_pages.py`: 위 원본과 문의·목차를 HTML로 변환
-- `site/style.css`: 모든 공개 페이지의 공통 스타일
-- `_site/`: 생성된 배포물. Git에는 포함하지 않음
-- `.github/workflows/pages.yml`: 모든 main push 또는 main에서 수동 실행 시 배포
+`scripts/build_pages.py`는 `_site/`에 다음 이동 페이지만 생성합니다.
 
-공개 페이지는 `index.html`, `privacy.html`, `terms.html`, `contact.html`, `deletion.html`이다. `_site`만 업로드하므로 내부 검토 문서·설정·DB·백업을 배포하지 않는다.
+| 기존 파일 | OWKR Docs 대상 |
+| --- | --- |
+| index.html | /owkr-docs/gather-bot |
+| privacy.html | /owkr-docs/gather-bot/privacy |
+| terms.html | /owkr-docs/gather-bot/terms |
+| contact.html, deletion.html | /owkr-docs/gather-bot/support |
 
-```bash
-python scripts/build_pages.py
-python -m http.server 8768 --directory _site
-```
+자동 이동이 차단되어도 본문의 링크로 이동할 수 있습니다. `.github/workflows/pages.yml`은
+main push와 수동 실행에서 이 이동 안내만 배포합니다. 실패 시 이전 배포가 유지되며
+Actions 로그를 확인하고 다시 실행합니다. 잘못된 대상은 수정 PR로 복구합니다.
 
-공개 기본 주소는 `https://overwatch-kr.github.io/owkr-gather-bot/`이다. 저장소 Settings → Pages의 Source는 GitHub Actions를 사용한다. main에 반영된 뒤 Public policy pages 작업의 성공과 실제 HTTPS 접근을 확인한다. PR 브랜치는 배포하지 않는다.
-
-## 초안과 최종 정책
-
-현재 문서는 검토 중임을 페이지에 명시하고 검색 색인을 요청하지 않는다. 초안 URL을 최종 정책으로 Developer Portal이나 봇 설정에 등록하지 않는다. Oracle 일본 도쿄 배포와 백업 검증 사실은 반영했으며, 보관 기한·국외 이전 고지·표시 요건·시행일의 최종 확인이 남아 있다. 완료 후 원본의 초안 표시와 생성기의 noindex·목차 안내·검토일을 함께 갱신한다. 정적 사이트 호스팅은 GitHub Pages이며 봇 DB 호스팅과 구분한다. 별도 분석·광고 코드는 없지만 제공자가 접속 IP 등 운영 정보를 처리하는 사항과 구분한다.
-
-최종 공개 확인 후 운영 설정의 `policy.privacy_url`과 `policy.terms_url`에 각 HTTPS 주소를 넣는다. 예제 설정의 null은 최종 정책 확정 전까지 유지한다.
-
-## 장애·로그·복원
-
-정적 문서는 상시 실행 프로세스가 없으므로 봇 자동 재시작 설정과 무관하다. 실패 원인은 Actions의 Public policy pages 로그에서 확인하며, 실패 시 main에서 작업을 재실행한다. 배포 로그에 비밀 값을 추가하지 않는다. 이미 게시된 사이트는 새 배포가 성공하기 전까지 이전 버전을 제공한다.
-
-원본과 스타일은 Git 이력으로 보관한다. 잘못 게시한 내용은 해당 변경을 되돌리는 PR을 병합해 재배포한다. 서비스 중단 시 Settings → Pages에서 사이트 게시를 중지할 수 있다. 봇 SQLite 백업·복원은 기존 VM 운영 안내를 따른다.
+공개 준비·시행일·초안 해제는 [OWKR Docs 관리 안내](https://github.com/Overwatch-KR/owkr-docs/blob/main/docs/gather-bot/README.md)를 따릅니다.
+최종 정책 확정 전까지 운영 설정의 정책 URL을 최종 정책으로 등록하지 않습니다.
+봇 서버·DB·백업은 이 이동 안내 배포와 무관하며 원본 이력은 Git에 보존됩니다.

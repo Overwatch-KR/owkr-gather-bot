@@ -15,8 +15,8 @@
 | [VM 운영 안내](oracle-free-deployment.md) | 단일 프로세스 배포, 로그·백업·복원 |
 | [개인정보·최소 권한 검토](privacy-and-permissions-review.html) | 구현된 보호 조치와 아직 필요한 운영 확인 |
 | [공개 웹 배포](github-pages.md) | GitHub Pages 구성·수정·복원과 초안 상태 |
-| [정책·지원 문서](legal/README.md) | 처리방침·약관·문의 안내의 공개 전 초안 |
-| [정책 대조 기록](legal/review-2026-10-28.md) | 실제 운영과의 차이 수정, 확인한 사실과 최종 공개 전 결정 사항 |
+| [정책·지원 문서](legal/README.md) | OWKR Docs의 정책 원본·초안·공개 준비 목록으로 연결 |
+| [정책 대조 기록](https://github.com/Overwatch-KR/owkr-docs/blob/main/docs/gather-bot/review-2026-10-28.md) | 실제 운영과의 차이 수정, 확인한 사실과 최종 공개 전 결정 사항 |
 | [초기 설계 기록](owkr-gather-bot-mvp-design.html) | 과거 제안 보존용. 현재 구현 지침으로 사용하지 않음 |
 
 ## 현재 사용자 흐름
@@ -37,7 +37,7 @@
 
 GitHub Actions CI는 main 대상 PR과 수동 실행에서 Python 3.13으로 전체 테스트·컴파일·
 의존성·Docker 검사를 수행합니다. main push에서는 CI를 반복하지 않고 배포 이미지
-생성과 공개 안내 웹 배포를 실행합니다. Discord 연결과 운영 토큰을 사용하는 E2E는
+생성과 기존 정책 주소의 이동 안내 배포를 실행합니다. Discord 연결과 운영 토큰을 사용하는 E2E는
 별도로 진행합니다. 자세한 실행 범위는 [README의 CI 안내](../README.md#자동-테스트)를 따릅니다.
 
 정책 문서의 공개 URL·시행일, 호스팅·백업·로그의 보관과 보호 조치는 확정된 사실만
