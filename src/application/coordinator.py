@@ -42,10 +42,8 @@ class DuplicateSourceRequest(RuntimeError):
         super().__init__(f"source request already created match {session.id}")
 
 
-class DuplicateStartTime(RuntimeError):
-    def __init__(self, session: MatchSession) -> None:
-        self.session = session
-        super().__init__(f"active match already starts at {session.starts_at.isoformat()}")
+class LobbyCapacityExceeded(RuntimeError):
+    """예약 시간대에 배정 가능한 서로 다른 대기실이 없는 경우."""
 
 
 class SessionCoordinator:
@@ -97,19 +95,23 @@ class SessionCoordinator:
 
     def lobby_assignment_for(self, starts_at: datetime) -> tuple[int, str]:
         starts_at_utc = starts_at.astimezone(timezone.utc)
-        overlaps = any(
-            abs(session.starts_at - starts_at_utc) < timedelta(hours=1)
-            for session in self.active_sessions
-        )
         defaults = self._config.defaults
-        if overlaps and defaults.lobby_voice_channel_2_id is not None:
-            return (
-                defaults.lobby_voice_channel_2_id,
-                defaults.lobby_2_name,
-            )
         if defaults.lobby_voice_channel_id is None:
             raise RuntimeError("primary lobby voice channel is not configured")
-        return defaults.lobby_voice_channel_id, defaults.lobby_name
+        # 저장된 배정을 기준으로 빈 방을 찾는다. 취소·재시작 후에도 기존 방은 이동하지 않는다.
+        occupied = {
+            session.lobby_voice_channel_id or defaults.lobby_voice_channel_id
+            for session in self.active_sessions
+            if abs(session.starts_at - starts_at_utc) < timedelta(hours=1)
+        }
+        candidates = (
+            (defaults.lobby_voice_channel_id, defaults.lobby_name),
+            (defaults.lobby_voice_channel_2_id, defaults.lobby_2_name),
+        )
+        for channel_id, name in candidates:
+            if channel_id is not None and channel_id not in occupied:
+                return channel_id, name
+        raise LobbyCapacityExceeded("all configured lobbies are reserved")
 
     def actor_for_announcement(
         self,
@@ -207,17 +209,6 @@ class SessionCoordinator:
                     raise DuplicateSourceRequest(existing)
 
             starts_at = request.parsed.starts_at.astimezone(timezone.utc)
-            existing_at_start = next(
-                (
-                    session
-                    for session in self.active_sessions
-                    if session.starts_at == starts_at
-                ),
-                None,
-            )
-            if existing_at_start is not None:
-                raise DuplicateStartTime(existing_at_start)
-
             match_code = await self._new_match_code()
             now = self._clock.now()
             lobby_voice_channel_id, lobby_name = self.lobby_assignment_for(

@@ -535,7 +535,7 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
         )
         return (
             f"{format_korean_time(local)} · "
-            f"{manager_name} · {mode} · {session.match_code}"
+            f"{manager_name} · {mode} · {session.lobby_name or self._config.defaults.lobby_name}"
         )
 
     @staticmethod

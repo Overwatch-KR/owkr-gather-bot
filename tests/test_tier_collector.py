@@ -98,6 +98,25 @@ class TierCollectorTest(unittest.IsolatedAsyncioTestCase):
             reply_to_message_id=reply_to_message_id,
         )
 
+    async def test_same_time_replies_stay_with_their_own_anchor(self) -> None:
+        opened = self.session.recruitment_completed_notified_at
+        second = make_session(
+            match_id="same-time-b", match_code="B123", now=self.session.created_at,
+            status=MatchStatus.FULL, completion_notified_at=opened,
+            full_reached_at=self.session.full_reached_at,
+        )
+        second.announcement_message_id = 1001
+        second.tier_anchor_message_id = 701
+        second.lobby_voice_channel_id = 106
+        self.assertEqual(second.starts_at, self.session.starts_at)
+        await self.repository.create_match(second)
+        await self.add_roster(second.id, 2, RosterStatus.CONFIRMED, 1)
+        a = await self.submit(1, opened, message_id=501, reply_to_message_id=700)
+        b = await self.submit(2, opened, message_id=502, reply_to_message_id=701)
+        self.assertEqual([a.session.id, b.session.id], [self.session.id, second.id])
+        self.assertIsNone(await self.repository.get_tier_submission(self.session.id, 2))
+        self.assertIsNone(await self.repository.get_tier_submission(second.id, 1))
+
     async def test_before_completion_is_not_accepted(self) -> None:
         result = await self.submit(
             1,
