@@ -70,6 +70,7 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
             lobby_offset_minutes=config.defaults.lobby_offset_minutes,
         )
         self._recruitment = recruitment
+        self._announcement_reconcile_lock = asyncio.Lock()
         self._seed_reaction_versions: dict[int, int] = {}
         self._seed_reaction_tasks: dict[int, asyncio.Task[None]] = {}
 

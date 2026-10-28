@@ -18,7 +18,7 @@ from src.parsing.match_command import CommandParseError, MatchCommandParser, Par
 from tests.helpers import MutableClock, make_config, make_session
 
 
-class AutoCancellationTest(unittest.IsolatedAsyncioTestCase):
+class CancellationFixture(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.path = Path(self.tempdir.name) / 'test.db'
@@ -59,6 +59,8 @@ class AutoCancellationTest(unittest.IsolatedAsyncioTestCase):
             action=action, received_at=when,
         )
 
+
+class AutoCancellationTest(CancellationFixture):
     async def test_deadline_boundary_and_same_time_session_isolation(self):
         session = await self.create()
         other = await self.create(1002, deadline=False)
