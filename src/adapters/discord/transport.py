@@ -72,12 +72,11 @@ class DiscordRecruitmentPublisher:
         role_mention = f"<@&{role_id}> " if role_id else ""
         lead = (
             f"{role_mention}<@{session.manager_user_id}>님이 여는 "
-            f"**{format_discord_timestamp(session.starts_at, 't')} 내전**!\n"
-            "참가하려면 아래 ✅을 눌러 주세요."
+            f"**{format_discord_timestamp(session.starts_at, 't')} 내전**"
         )
         message = await channel.send(
             content=lead,
-            embed=build_recruitment_embed(self._config, description),
+            embed=build_recruitment_embed(self._config, description, session),
             allowed_mentions=allowed_mentions_for([], [role_id] if role_id else []),
         )
         return DiscordPublishedRecruitment(session, message)

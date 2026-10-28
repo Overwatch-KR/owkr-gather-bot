@@ -120,13 +120,54 @@ def allowed_mentions_for(
 def build_recruitment_embed(
     config: AppConfig,
     description: str,
+    session: MatchSession,
 ) -> discord.Embed:
+    """본문 템플릿을 보존하고 마감·대기실을 독립된 일정 칸으로 표시한다."""
+    mode = session.mode or config.defaults.mode_display_fallback
+    title = f"⚔️ 내전 모집 · {mode}" if mode else "⚔️ 내전 모집"
+    # 긴 사용자 지정 모드는 본문에서 온전히 보여주고 제목 제한만 피한다.
+    if len(title) > 256:
+        title = "⚔️ 내전 모집"
     embed = discord.Embed(
-        title="내전 모집",
+        title=title,
         description=description,
-        color=discord.Color.from_rgb(67, 181, 129),
+        color=discord.Color.from_rgb(88, 101, 242),
     )
-    embed.set_footer(text=config.messages.manner_notice)
+    embed.add_field(
+        name="📝 티어 작성 마감",
+        value=(
+            f"{format_discord_timestamp(session.tier_deadline_at, 't')}\n"
+            f"모집 완료 후 <#{session.tier_channel_id}> 안내에 답장"
+        ),
+        inline=True,
+    )
+    embed.add_field(
+        name="🔊 대기실 입장",
+        value=(
+            f"{format_discord_timestamp(session.lobby_at, 't')}\n"
+            f"{session.lobby_name or config.defaults.lobby_name}"
+        ),
+        inline=True,
+    )
+    notice = config.messages.manner_notice
+    # 기존 공지 문구를 자르지 않고 Discord의 필드 길이 제한에 맞춘다.
+    for offset in range(0, len(notice), 1024):
+        embed.add_field(
+            name="🤝 함께 지켜 주세요" if offset == 0 else "이용 안내 · 계속",
+            value=notice[offset:offset + 1024],
+            inline=False,
+        )
+    if config.policy.terms_url:
+        embed.add_field(
+            name="이용 안내",
+            value=f"[상세 안내]({config.policy.terms_url})",
+            inline=False,
+        )
+    embed.set_footer(text="아래 ✅ 반응으로 참가 신청 · 정원 이후 대기 등록")
+    if len(description) > 4096 or len(embed.fields) > 25 or len(embed) > 6000:
+        raise ValueError("recruitment card exceeds Discord embed limits")
+    if any(len(field.value) > 1024 for field in embed.fields):
+        raise ValueError("recruitment schedule exceeds Discord field limits")
     return embed
 
 
