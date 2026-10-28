@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove expired OWKR backups and journal archives
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/owkr-gather-bot
+ExecStart=/usr/bin/flock --wait 60 /run/lock/owkr-gather-bot-operations.lock /usr/bin/python3 /home/ubuntu/owkr-gather-bot/scripts/retention.py --backups /home/ubuntu/owkr-gather-bot/backups --apply
+ExecStart=/usr/bin/journalctl --rotate --vacuum-time=29days
+UMask=0077
+TimeoutStartSec=5min

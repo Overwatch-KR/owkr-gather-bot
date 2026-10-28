@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly OWKR retention check, including after downtime
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=owkr-retention.service
+
+[Install]
+WantedBy=timers.target
