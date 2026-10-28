@@ -1,6 +1,5 @@
-"""Verify the public artifact boundary and project-relative navigation."""
+"""Legacy URLs redirect without publishing stale policies or private files."""
 from html.parser import HTMLParser
-from urllib.parse import urlsplit
 
 from scripts import build_pages
 
@@ -16,30 +15,25 @@ class Links(HTMLParser):
                 self.links.append(value)
 
 
-def test_public_artifact_contains_only_approved_documents(tmp_path, monkeypatch):
+def test_legacy_policy_urls_redirect_only_to_canonical_docs(tmp_path, monkeypatch):
     monkeypatch.setattr(build_pages, 'OUT', tmp_path / 'public')
+    build_pages.OUT.mkdir()
+    (build_pages.OUT / 'stale-privacy.md').write_text('stale policy')
     build_pages.build()
     assert {p.name for p in build_pages.OUT.iterdir()} == {
         'index.html', 'privacy.html', 'terms.html', 'contact.html',
-        'deletion.html', 'style.css', '.nojekyll',
+        'deletion.html', '.nojekyll',
     }
-    for path in build_pages.OUT.glob('*.html'):
+    expected = {
+        'index': '', 'privacy': '/privacy', 'terms': '/terms',
+        'contact': '/support', 'deletion': '/support',
+    }
+    for slug, suffix in expected.items():
+        html = (build_pages.OUT / f'{slug}.html').read_text()
+        target = 'https://overwatch-kr.github.io/owkr-docs/gather-bot' + suffix
         parser = Links()
-        parser.feed(path.read_text())
-        for target in parser.links:
-            url = urlsplit(target)
-            if url.scheme:
-                assert url.scheme in {'mailto', 'https'}
-                if url.scheme == 'https':
-                    assert url.netloc
-            elif url.path:
-                assert not url.path.startswith('/')
-                assert (path.parent / url.path).is_file(), target
-        assert '<script' not in path.read_text()
-        assert '시행일 미정' in path.read_text()
-
-
-def test_deletion_steps_remain_readable():
-    html = build_pages.markdown('1. 본인 확인\n2. 처리 범위 확인\n\n다음 안내')
-    assert '<ol>\n<li>본인 확인</li>\n<li>처리 범위 확인</li>\n</ol>' in html
-    assert '<p>다음 안내</p>' in html
+        parser.feed(html)
+        assert parser.links == [target, target]
+        assert f'content="0; url={target}"' in html
+        assert 'noindex' in html
+        assert '<script' not in html
