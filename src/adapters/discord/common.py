@@ -133,6 +133,12 @@ def build_recruitment_embed(
         description=description,
         color=discord.Color.from_rgb(88, 101, 242),
     )
+    if session.recruitment_cancel_at is not None:
+        embed.add_field(
+            name="모집 미완료 시 취소",
+            value=f"{format_match_time(session.recruitment_cancel_at)}까지 10명이 모이지 않으면 취소",
+            inline=False,
+        )
     embed.add_field(
         name="📝 티어 작성 마감",
         value=(

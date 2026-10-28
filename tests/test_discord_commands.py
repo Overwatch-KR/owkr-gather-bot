@@ -213,7 +213,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [child.label for child in create_view.children],
-            ["생성", "시간·모드 수정", "취소"],
+            ["생성", "시간·모드·취소 시각 수정", "취소"],
         )
         self.assertEqual(
             [child.label for child in cancel_view.children],
@@ -232,18 +232,19 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
             starts_at=session.starts_at,
             tier_deadline_at=session.tier_deadline_at,
             lobby_at=session.lobby_at,
-            mode="일반 내전",
+            mode="일반 내전", recruitment_cancel_at=None,
         )
         updated = SimpleNamespace(
             starts_at=session.starts_at + timedelta(hours=1),
             tier_deadline_at=session.tier_deadline_at
             + timedelta(hours=1),
             lobby_at=session.lobby_at + timedelta(hours=1),
-            mode="6ㄷ6클래식",
+            mode="6ㄷ6클래식", recruitment_cancel_at=None,
         )
         cog = object.__new__(GatherCog)
         cog._config = make_config()
-        cog._parser = SimpleNamespace(parse=MagicMock(return_value=updated))
+        cog._parser = SimpleNamespace(parse=MagicMock(return_value=updated),
+            with_cancellation_time=MagicMock(return_value=updated))
         cog._clock = SimpleNamespace(now=lambda: session.created_at)
         cog._coordinator = SimpleNamespace(
             lobby_assignment_for=lambda starts_at: (105, "대기실 1번")
@@ -340,12 +341,12 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         )
         parsed = SimpleNamespace(
             starts_at=session.starts_at, tier_deadline_at=session.tier_deadline_at,
-            lobby_at=session.lobby_at, mode=session.mode,
+            lobby_at=session.lobby_at, mode=session.mode, recruitment_cancel_at=None,
         )
         view = CreateMatchConfirmationView(cog, SimpleNamespace(user=SimpleNamespace(id=200)), parsed)
         self.assertIn("현재 빈 대기실 없음", view.content())
         self.assertIn("시간을 변경", view.content())
-        self.assertIn("시간·모드 수정", [child.label for child in view.children])
+        self.assertIn("시간·모드·취소 시각 수정", [child.label for child in view.children])
 
     async def test_cancel_confirmation_retains_start_time_after_cleanup(
         self,

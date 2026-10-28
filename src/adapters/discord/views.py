@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class EditMatchModal(discord.ui.Modal, title="내전 시간·모드 수정"):
+class EditMatchModal(discord.ui.Modal, title="내전 시간·모드·취소 시각 수정"):
     def __init__(self, view: CreateMatchConfirmationView) -> None:
         super().__init__(timeout=120)
         self._view = view
@@ -41,6 +41,16 @@ class EditMatchModal(discord.ui.Modal, title="내전 시간·모드 수정"):
             required=False,
             max_length=100,
         )
+        self.cancel_time_input = discord.ui.TextInput(
+            style=discord.TextStyle.short, custom_id="recruitment_cancel_time",
+            default=format_korean_time(view.parsed.recruitment_cancel_at) if view.parsed.recruitment_cancel_at else None,
+            required=False, max_length=30,
+        )
+        self.add_item(discord.ui.Label(
+            text="모집 미완료 시 취소 시각 (선택)",
+            description="예: 오후 7시 30분. 비워 두면 자동 취소하지 않습니다.",
+            component=self.cancel_time_input,
+        ))
         self.add_item(
             discord.ui.Label(
                 text="시작 시간",
@@ -75,6 +85,9 @@ class EditMatchModal(discord.ui.Modal, title="내전 시간·모드 수정"):
                 arguments,
                 now=self._view.cog._clock.now(),
                 default_mode=None,
+            )
+            parsed = self._view.cog._parser.with_cancellation_time(
+                parsed, self.cancel_time_input.value, now=self._view.cog._clock.now(),
             )
         except PastTimeError:
             await interaction.response.send_message(
@@ -140,10 +153,15 @@ class CreateMatchConfirmationView(discord.ui.View):
             lobby_name = format_lobby_target(lobby_id, lobby_name)
         except LobbyCapacityExceeded:
             lobby_name = "현재 빈 대기실 없음 · 시간을 변경해 주세요"
+        cancellation = (
+            f"모집 미완료 시 취소 · {format_match_time(self._parsed.recruitment_cancel_at)}\n"
+            if self._parsed.recruitment_cancel_at else "자동 취소 · 설정 안 함\n"
+        )
         return (
             "**내전 생성 확인**\n\n"
             f"시작 · {format_match_time(self._parsed.starts_at)}\n"
             f"모드 · {mode}\n"
+            f"{cancellation}"
             f"티어 마감 · "
             f"{format_match_time(self._parsed.tier_deadline_at)}\n"
             f"대기실 입장 · {format_match_time(self._parsed.lobby_at)} "
@@ -187,6 +205,11 @@ class CreateMatchConfirmationView(discord.ui.View):
             )
         except DuplicateSourceRequest as exc:
             session = exc.session
+        except CommandParseError as exc:
+            await interaction.edit_original_response(
+                content=str(exc), view=None, allowed_mentions=allowed_mentions_for([]),
+            )
+            return
         except LobbyCapacityExceeded:
             await interaction.edit_original_response(
                 content=(
@@ -227,7 +250,7 @@ class CreateMatchConfirmationView(discord.ui.View):
             allowed_mentions=allowed_mentions_for([]),
         )
 
-    @discord.ui.button(label="시간·모드 수정", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="시간·모드·취소 시각 수정", style=discord.ButtonStyle.primary)
     async def edit(
         self,
         interaction: discord.Interaction,

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import (
     datetime,
 )
 
 from src.domain.models import (
+    CancellationJob,
     MatchSession,
     MatchStatus,
     NotificationStatus,
@@ -20,6 +22,7 @@ from .base import (
     ACTIVE_STATUSES,
     SQLiteStore,
     _to_db,
+    _from_db,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +43,7 @@ class SessionStorage(SQLiteStore):
                         announcement_channel_id, announcement_message_id,
                         tier_channel_id, tier_anchor_message_id,
                         admin_channel_id, mode, participant_limit,
-                        status, starts_at_utc, tier_deadline_at_utc, lobby_at_utc,
+                        status, starts_at_utc, tier_deadline_at_utc, lobby_at_utc, recruitment_cancel_at_utc,
                         lobby_voice_channel_id, lobby_name,
                         full_reached_at_utc, recruitment_completed_notified_at_utc,
                         tier_complete_notified_at_utc,
@@ -49,7 +52,7 @@ class SessionStorage(SQLiteStore):
                         created_at_utc, updated_at_utc
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                     """,
                     (
@@ -71,6 +74,7 @@ class SessionStorage(SQLiteStore):
                         _to_db(session.starts_at),
                         _to_db(session.tier_deadline_at),
                         _to_db(session.lobby_at),
+                        _to_db(session.recruitment_cancel_at) if session.recruitment_cancel_at else None,
                         session.lobby_voice_channel_id,
                         session.lobby_name,
                         _to_db(session.full_reached_at)
@@ -119,10 +123,29 @@ class SessionStorage(SQLiteStore):
             ),
         )
 
-    async def cancel_match(self, match_id: str, now: datetime) -> None:
+    async def cancel_match(self, match_id: str, now: datetime, *, queue_cleanup: bool = False) -> None:
         async with self._write_lock:
             await self.connection.execute("BEGIN IMMEDIATE")
             try:
+                if queue_cleanup:
+                    row = await self._fetchone(
+                        "SELECT * FROM match_sessions WHERE id = ? AND status IN (?, ?, ?)",
+                        (match_id, *ACTIVE_STATUSES),
+                    )
+                    if row is not None and row["announcement_message_id"] is not None:
+                        substitutes = await self._fetchall(
+                            "SELECT discord_message_id FROM substitute_recruitments WHERE match_id = ?",
+                            (match_id,),
+                        )
+                        payload = {key: row[key] for key in (
+                            "announcement_channel_id", "announcement_message_id", "tier_channel_id",
+                            "tier_anchor_message_id", "starts_at_utc", "lobby_name",
+                        )}
+                        payload["substitute_message_ids"] = [int(item["discord_message_id"]) for item in substitutes]
+                        await self.connection.execute(
+                            "INSERT OR IGNORE INTO cancellation_jobs (match_id, guild_id, payload_json) VALUES (?, ?, ?)",
+                            (match_id, row["guild_id"], json.dumps(payload)),
+                        )
                 await self.connection.execute(
                     """
                     UPDATE match_sessions SET status = ?, updated_at_utc = ?
@@ -371,3 +394,29 @@ class SessionStorage(SQLiteStore):
             (match_id, SubstituteRecruitmentStatus.OPEN.value),
         )
         return self._substitute_recruitment_from_row(row) if row else None
+
+    async def pending_cancellations(self, guild_id: int) -> list[CancellationJob]:
+        rows = await self._fetchall(
+            "SELECT * FROM cancellation_jobs WHERE guild_id = ? ORDER BY rowid", (guild_id,)
+        )
+        result = []
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            result.append(CancellationJob(
+                match_id=row["match_id"], guild_id=row["guild_id"],
+                announcement_channel_id=payload["announcement_channel_id"],
+                announcement_message_id=payload["announcement_message_id"],
+                tier_channel_id=payload["tier_channel_id"],
+                tier_anchor_message_id=payload["tier_anchor_message_id"],
+                starts_at=_from_db(payload["starts_at_utc"]),
+                lobby_name=payload["lobby_name"],
+                substitute_message_ids=tuple(payload["substitute_message_ids"]),
+                notice_sent=bool(row["notice_sent"]),
+            ))
+        return result
+
+    async def mark_cancellation_notice_sent(self, match_id: str) -> None:
+        await self._execute_write("UPDATE cancellation_jobs SET notice_sent = 1 WHERE match_id = ?", (match_id,))
+
+    async def complete_cancellation(self, match_id: str) -> None:
+        await self._execute_write("DELETE FROM cancellation_jobs WHERE match_id = ?", (match_id,))

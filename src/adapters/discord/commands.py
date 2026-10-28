@@ -134,12 +134,14 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
     @app_commands.describe(
         시간="시작 시각입니다. 예: 오후 6시 20분, 18:20, 23시",
         모드="선택 사항입니다. 예: 6ㄷ6클래식",
+        취소시각="선택 사항입니다. 이 시각까지 10명이 모이지 않으면 취소합니다. 예: 오후 7시 30분",
     )
     async def create_match_command(
         self,
         interaction: discord.Interaction,
         시간: str,
         모드: str | None = None,
+        취소시각: str | None = None,
     ) -> None:
         manager = self._config.manager(interaction.user.id)
         arguments = f"{시간} {모드 or ''}".strip()
@@ -149,6 +151,7 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
                 now=self._clock.now(),
                 default_mode=manager.default_mode,
             )
+            parsed = self._parser.with_cancellation_time(parsed, 취소시각, now=self._clock.now())
         except PastTimeError:
             await interaction.response.send_message(
                 "입력한 시각이 이미 지났습니다. 미래 시각으로 다시 입력해 주세요.",

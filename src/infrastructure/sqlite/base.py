@@ -91,6 +91,12 @@ class SQLiteStore:
                 continue
             if path.name == "002_multi_match.sql":
                 await self._ensure_tier_missing_reminder_schema()
+            if path.name == "007_recruitment_cancel.sql":
+                # SQL 적용 직후 기록 전에 중단되어도 기존 열을 다시 추가하지 않는다.
+                columns = await self._fetchall("PRAGMA table_info(match_sessions)")
+                if not any(row["name"] == "recruitment_cancel_at_utc" for row in columns):
+                    await self._connection.execute("ALTER TABLE match_sessions ADD COLUMN recruitment_cancel_at_utc TEXT")
+                    await self._connection.commit()
             await self._connection.executescript(path.read_text(encoding="utf-8"))
             await self._connection.execute(
                 "INSERT INTO schema_migrations (name, applied_at_utc) VALUES (?, ?)",
@@ -238,6 +244,7 @@ class SQLiteStore:
             status=MatchStatus(row["status"]),
             starts_at=_from_db(row["starts_at_utc"]),  # type: ignore[arg-type]
             tier_deadline_at=_from_db(row["tier_deadline_at_utc"]),  # type: ignore[arg-type]
+            recruitment_cancel_at=_from_db(row["recruitment_cancel_at_utc"]),
             lobby_at=_from_db(row["lobby_at_utc"]),  # type: ignore[arg-type]
             lobby_voice_channel_id=(
                 int(row["lobby_voice_channel_id"])

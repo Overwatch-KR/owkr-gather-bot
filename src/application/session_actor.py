@@ -153,7 +153,7 @@ class SessionActor:
                 self._queue.task_done()
 
     async def _process(self, event: ReactionEvent) -> None:
-        if event.received_at >= self.session.starts_at:
+        if not self.session.accepts_activity_at(event.received_at):
             return
 
         substitute_message_id = event.substitute_recruitment_message_id
