@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from src.application.coordinator import DuplicateSourceRequest, SessionCoordinator
+from src.application.coordinator import DuplicateSourceRequest, LobbyCapacityExceeded, SessionCoordinator
 from src.application.recruitment import RecruitmentService
 from src.application.runtime import ApplicationRuntime
 from src.application.safety import SafetyService
@@ -108,6 +108,52 @@ class RecruitmentRuntimeTest(unittest.IsolatedAsyncioTestCase):
         )
         stored = await self.runtime.repository.get_match(session.id)
         self.assertEqual(stored.announcement_message_id, message_id)
+
+    async def test_concurrent_same_time_creates_only_two_announcements(self):
+        publisher = Publisher()
+        results = await asyncio.gather(
+            *(self.create(publisher, request=f"parallel-{i}") for i in range(3)),
+            return_exceptions=True,
+        )
+        sessions = [result for result in results if not isinstance(result, Exception)]
+        self.assertEqual(len(sessions), 2)
+        self.assertEqual(sum(isinstance(result, LobbyCapacityExceeded) for result in results), 1)
+        self.assertEqual(len(publisher.announcements), 2)
+        self.assertEqual({s.lobby_voice_channel_id for s in sessions}, {105, 106})
+        # 같은 요청 재전송은 정원 검사보다 먼저 기존 결과로 연결한다.
+        with self.assertRaises(DuplicateSourceRequest):
+            await self.create(publisher, request="parallel-0")
+        self.assertEqual(len(publisher.announcements), 2)
+
+    async def test_same_time_restart_keeps_lobbies_rosters_and_routes_separate(self):
+        first = await self.create(Publisher(), request="same-a")
+        second = await self.create(Publisher(), request="same-b")
+        for session, user_id in [(first, 301), (second, 302)]:
+            self.runtime.coordinator.ingest_reaction(
+                announcement_message_id=session.announcement_message_id,
+                discord_user_id=user_id, discord_display_name=f"user-{user_id}",
+                action=ReactionAction.ADD, received_at=self.clock.now(),
+            )
+        await self.runtime.stop()
+        self.runtime = self.make_runtime()
+        await self.runtime.start_storage()
+        for session, user_id, lobby in [(first, 301, 105), (second, 302, 106)]:
+            actor = self.runtime.coordinator.actor_for_announcement(session.announcement_message_id)
+            self.assertEqual(actor.session.lobby_voice_channel_id, lobby)
+            self.assertEqual([e.discord_user_id for e in actor.current_confirmed()], [user_id])
+        await self.runtime.coordinator.cancel_match(first.id)
+        self.assertIsNone(self.runtime.coordinator.actor_for_announcement(first.announcement_message_id))
+        self.assertIsNotNone(self.runtime.coordinator.actor_for_announcement(second.announcement_message_id))
+        replacement = await self.create(Publisher(), request="same-c")
+        self.assertEqual(replacement.lobby_voice_channel_id, 105)
+
+    async def test_failed_same_time_publication_releases_only_its_lobby(self):
+        first = await self.create(Publisher(), request="kept")
+        with self.assertRaisesRegex(RuntimeError, "seed failed"):
+            await self.create(Publisher("seed"), request="failed")
+        replacement = await self.create(Publisher(), request="replacement")
+        self.assertEqual(replacement.lobby_voice_channel_id, 106)
+        self.assertIsNotNone(self.runtime.coordinator.actor_for_match(first.id))
 
     async def test_failed_creation_cancels_only_its_session_and_cleans_sent_message(
         self,

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from src.application.coordinator import DuplicateSourceRequest, DuplicateStartTime
+from src.application.coordinator import DuplicateSourceRequest, LobbyCapacityExceeded
 from src.application.rendering import format_match_time, format_korean_time
 from src.domain.models import MatchSession
 from src.parsing.match_command import (
@@ -135,9 +135,10 @@ class CreateMatchConfirmationView(discord.ui.View):
             or self._cog._config.defaults.mode_display_fallback
             or "일반 내전"
         )
-        _, lobby_name = self._cog._coordinator.lobby_assignment_for(
-            self._parsed.starts_at
-        )
+        try:
+            _, lobby_name = self._cog._coordinator.lobby_assignment_for(self._parsed.starts_at)
+        except LobbyCapacityExceeded:
+            lobby_name = "현재 빈 대기실 없음 · 시간을 변경해 주세요"
         return (
             "**내전 생성 확인**\n\n"
             f"시작 · {format_match_time(self._parsed.starts_at)}\n"
@@ -145,7 +146,8 @@ class CreateMatchConfirmationView(discord.ui.View):
             f"티어 마감 · "
             f"{format_match_time(self._parsed.tier_deadline_at)}\n"
             f"대기실 입장 · {format_match_time(self._parsed.lobby_at)} "
-            f"· {lobby_name}\n\n"
+            f"· {lobby_name} (예상)\n\n"
+            "대기실은 실제 생성 순서에 따라 확정됩니다.\n"
             "이 내용으로 모집 공지를 만들까요?"
         )
 
@@ -184,10 +186,10 @@ class CreateMatchConfirmationView(discord.ui.View):
             )
         except DuplicateSourceRequest as exc:
             session = exc.session
-        except DuplicateStartTime:
+        except LobbyCapacityExceeded:
             await interaction.edit_original_response(
                 content=(
-                    "같은 시작 시각에 이미 활성 내전이 있습니다. "
+                    "해당 시간대의 대기실이 모두 예약되어 있습니다. "
                     "시간을 변경하거나 기존 내전을 취소한 뒤 다시 시도해 주세요."
                 ),
                 view=None,

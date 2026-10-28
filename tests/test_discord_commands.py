@@ -21,7 +21,7 @@ from src.adapters.discord_adapter import (
     _normalized_command_payload,
     match_status_label,
 )
-from src.application.coordinator import DuplicateStartTime
+from src.application.coordinator import LobbyCapacityExceeded
 from src.application.rendering import (
     RenderedNotification,
 )
@@ -304,7 +304,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/100/102/1000", content)
         self.assertNotIn(session.id, content)
 
-    async def test_create_confirmation_explains_duplicate_start_time(self) -> None:
+    async def test_create_confirmation_explains_lobby_capacity(self) -> None:
         original = MagicMock(spec=discord.Interaction)
         original.id = 999
         original.channel_id = 101
@@ -317,7 +317,7 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
             mode=session.mode,
         )
         cog = object.__new__(GatherCog)
-        cog.create_match = AsyncMock(side_effect=DuplicateStartTime(session))
+        cog.create_match = AsyncMock(side_effect=LobbyCapacityExceeded())
         view = CreateMatchConfirmationView(cog, original, parsed)
         interaction = SimpleNamespace(
             user=SimpleNamespace(id=200),
@@ -328,8 +328,24 @@ class DiscordApplicationCommandTest(unittest.IsolatedAsyncioTestCase):
         await view.children[0].callback(interaction)
 
         content = interaction.edit_original_response.await_args.kwargs["content"]
-        self.assertIn("같은 시작 시각", content)
+        self.assertIn("대기실이 모두 예약", content)
         self.assertIn("시간을 변경", content)
+
+    async def test_full_lobbies_still_allow_editing_creation_preview(self) -> None:
+        session = make_session()
+        cog = object.__new__(GatherCog)
+        cog._config = make_config()
+        cog._coordinator = SimpleNamespace(
+            lobby_assignment_for=MagicMock(side_effect=LobbyCapacityExceeded())
+        )
+        parsed = SimpleNamespace(
+            starts_at=session.starts_at, tier_deadline_at=session.tier_deadline_at,
+            lobby_at=session.lobby_at, mode=session.mode,
+        )
+        view = CreateMatchConfirmationView(cog, SimpleNamespace(user=SimpleNamespace(id=200)), parsed)
+        self.assertIn("현재 빈 대기실 없음", view.content())
+        self.assertIn("시간을 변경", view.content())
+        self.assertIn("시간·모드 수정", [child.label for child in view.children])
 
     async def test_cancel_confirmation_retains_start_time_after_cleanup(
         self,

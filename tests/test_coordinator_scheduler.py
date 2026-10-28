@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.application.coordinator import (
     CreateMatchRequest,
-    DuplicateStartTime,
+    LobbyCapacityExceeded,
     DuplicateSourceRequest,
     SessionCoordinator,
 )
@@ -162,21 +163,48 @@ class CoordinatorSchedulerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.lobby_voice_channel_id, 105)
         self.assertEqual(second.lobby_name, "대기실 1번")
 
-    async def test_same_time_match_is_rejected(self) -> None:
+    async def test_same_time_matches_reserve_separate_lobbies_and_reject_third(self) -> None:
         parsed = self.parsed(2)
-        first = await self.coordinator.create_match(
-            CreateMatchRequest(200, 101, parsed)
-        )
+        first = await self.coordinator.create_match(CreateMatchRequest(200, 101, parsed))
+        second = await self.coordinator.create_match(CreateMatchRequest(201, 101, parsed))
         await self.coordinator.activate(first, 1100)
+        await self.coordinator.activate(second, 1101)
+        self.assertEqual([first.lobby_voice_channel_id, second.lobby_voice_channel_id], [105, 106])
+        self.assertNotEqual(first.id, second.id)
         self.assertEqual(first.participant_limit, 10)
+        with self.assertRaises(LobbyCapacityExceeded):
+            await self.coordinator.create_match(CreateMatchRequest(202, 101, parsed))
+        self.assertEqual(len(self.coordinator.active_sessions), 2)
+        await self.coordinator.cancel_match(first.id)
+        replacement = await self.coordinator.create_match(CreateMatchRequest(202, 101, parsed))
+        self.assertEqual(replacement.lobby_voice_channel_id, 105)
+        self.assertEqual(second.lobby_voice_channel_id, 106)
 
-        with self.assertRaises(DuplicateStartTime) as raised:
-            await self.coordinator.create_match(
-                CreateMatchRequest(201, 101, parsed)
-            )
+    async def test_single_lobby_or_duplicate_channel_never_double_books(self) -> None:
+        for secondary in (None, 105):
+            with self.subTest(secondary=secondary):
+                config = make_config()
+                config = replace(config, defaults=replace(config.defaults, lobby_voice_channel_2_id=secondary))
+                self.coordinator._config = config
+                first = await self.coordinator.create_match(CreateMatchRequest(200, 101, self.parsed(2)))
+                with self.assertRaises(LobbyCapacityExceeded):
+                    await self.coordinator.create_match(CreateMatchRequest(201, 101, self.parsed(2)))
+                await self.coordinator.cancel_match(first.id)
 
-        self.assertEqual(raised.exception.session.id, first.id)
-        self.assertEqual(len(self.coordinator.active_sessions), 1)
+    async def test_out_of_order_schedule_reuses_free_primary_lobby(self) -> None:
+        first = await self.coordinator.create_match(CreateMatchRequest(200, 101, self.parsed(2)))
+        # 59분 차이로 방2를 예약한 뒤, 방1과 정확히 1시간 차이인 일정을 추가한다.
+        parsed = self.parsed(3)
+        near = replace(
+            parsed, starts_at=parsed.starts_at-timedelta(minutes=1),
+            tier_deadline_at=parsed.tier_deadline_at-timedelta(minutes=1),
+            lobby_at=parsed.lobby_at-timedelta(minutes=1),
+        )
+        second = await self.coordinator.create_match(CreateMatchRequest(201, 101, near))
+        third = await self.coordinator.create_match(CreateMatchRequest(202, 101, parsed))
+        self.assertEqual([s.lobby_voice_channel_id for s in (first, second, third)], [105, 106, 105])
+        with self.assertRaises(LobbyCapacityExceeded):
+            await self.coordinator.create_match(CreateMatchRequest(203, 101, near))
 
     async def test_canceling_one_match_keeps_other_actor_running(self) -> None:
         first = await self.coordinator.create_match(
