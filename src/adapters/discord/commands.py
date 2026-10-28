@@ -542,40 +542,40 @@ class GatherCog(DiscordEventHandlers, commands.Cog):
     def _match_status_time_label(session: MatchSession) -> str:
         return format_korean_time(session.starts_at.astimezone(KST))
 
-    async def _mark_announcement_canceled(self, session: MatchSession) -> bool:
-        if session.announcement_message_id is None:
-            return False
+    async def _replace_announcement_with_cancellation(self, session: MatchSession) -> tuple[bool, bool]:
+        """봇 자신의 모집 공지를 지워 반응을 제거하고, 취소 안내를 별도로 남긴다."""
+        deleted = session.announcement_message_id is None
         try:
             channel = self.bot.get_channel(session.announcement_channel_id)
             if channel is None:
                 channel = await self.bot.fetch_channel(session.announcement_channel_id)
             if not isinstance(channel, discord.abc.Messageable):
-                raise TypeError(
-                    f"channel {session.announcement_channel_id} is not messageable"
-                )
-            message = await channel.fetch_message(session.announcement_message_id)
-            # 같은 공지를 덮어써 재시도해도 취소 안내가 중복 게시되지 않는다.
-            await message.edit(
+                raise TypeError("announcement channel is not messageable")
+        except (discord.HTTPException, TypeError):
+            logger.warning("failed to access cancellation channel match_id=%s", session.id, exc_info=True)
+            return False, deleted
+        if not deleted:
+            try:
+                message = await channel.fetch_message(session.announcement_message_id)
+                await message.delete()
+                deleted = True
+            except discord.NotFound:
+                deleted = True
+            except discord.HTTPException:
+                logger.warning("failed to delete canceled announcement match_id=%s", session.id, exc_info=True)
+        try:
+            await channel.send(
                 content=(
                     "**내전 취소**\n"
-                    f"{format_match_time(session.starts_at)} 내전이 취소되었습니다.\n"
-                    "이 공지에서는 더 이상 참가 신청을 받지 않습니다."
+                    f"{format_match_time(session.starts_at)} 내전이 취소되었습니다."
+                    + (f"\n대기실 · {session.lobby_name}" if session.lobby_name else "")
                 ),
-                embed=None,
                 allowed_mentions=allowed_mentions_for([]),
             )
-            return True
-        except discord.NotFound:
-            return False
-        except (discord.Forbidden, discord.HTTPException, TypeError):
-            logger.warning(
-                "failed to mark recruitment message canceled match_id=%s channel_id=%s message_id=%s",
-                session.id,
-                session.announcement_channel_id,
-                session.announcement_message_id,
-                exc_info=True,
-            )
-            return False
+            return True, deleted
+        except discord.HTTPException:
+            logger.warning("failed to send cancellation notice match_id=%s", session.id, exc_info=True)
+            return False, deleted
 
     async def _delete_tier_anchor_message(self, session: MatchSession) -> bool:
         if session.tier_anchor_message_id is None:
