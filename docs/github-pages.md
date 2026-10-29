@@ -20,5 +20,5 @@ main push와 수동 실행에서 이 이동 안내만 배포합니다. 실패 �
 Actions 로그를 확인하고 다시 실행합니다. 잘못된 대상은 수정 PR로 복구합니다.
 
 공개 준비·시행일·초안 해제는 [OWKR Docs 관리 안내](https://github.com/Overwatch-KR/owkr-docs/blob/main/docs/gather-bot/README.md)를 따릅니다.
-최종 정책 확정 전까지 운영 설정의 정책 URL을 최종 정책으로 등록하지 않습니다.
+Portal·운영 설정에 공개 정책 URL을 연결할 때는 접근 가능 여부와 현재 수집·보관·삭제 동작의 일치를 확인합니다. Discord 제출 점검과 계약·국외 처리의 추가 검토는 구분하며, URL 연결을 법적 검토 완료나 Discord 승인으로 표시하지 않습니다.
 봇 서버·DB·백업은 이 이동 안내 배포와 무관하며 원본 이력은 Git에 보존됩니다.

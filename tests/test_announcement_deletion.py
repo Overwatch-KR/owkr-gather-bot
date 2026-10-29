@@ -73,7 +73,14 @@ class AnnouncementDeletionTest(CancellationFixture):
         await self.close_runtime()
         await self.open_runtime()
         cog = self.cog()
-        channel = SimpleNamespace(fetch_message=AsyncMock(side_effect=[missing(), forbidden()]))
+        # UUID tie-breaks can change recovery order; failures belong to messages, not calls.
+        errors = {first.announcement_message_id: missing(), second.announcement_message_id: forbidden()}
+
+        async def fetch_message(message_id):
+            self.assertIn(message_id, errors)
+            raise errors[message_id]
+
+        channel = SimpleNamespace(fetch_message=AsyncMock(side_effect=fetch_message))
         cog.bot = SimpleNamespace(get_channel=lambda channel_id: channel)
         await cog.on_ready()
         self.assertEqual((await self.repo.get_match(first.id)).status, MatchStatus.CANCELED)
