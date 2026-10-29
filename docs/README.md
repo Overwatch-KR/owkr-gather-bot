@@ -11,6 +11,7 @@
 | [현재 구현 설계](owkr-gather-bot-mvp-design-v2.html) | 모집·티어·대타·경고·복구·저장 정책 |
 | [코드 아키텍처](architecture.md) | 책임·의존성·생성·저장·시작과 종료·복구의 보장 범위 |
 | [개발·Git 규칙](../CONTRIBUTING.md) | 구현 단위 커밋·커밋별 검증·PR·병합 이력 보존 |
+| [삭제 요청·복원 검증](deletion-request-verification.md) | 가상 데이터 삭제·백업 복원·재수집 차단의 검증 결과와 실제 운영 미확인 범위 |
 | [Discord E2E](discord-e2e.md) | 실제 서버에서 권한·반응·알림·삭제를 확인하는 절차 |
 | [VM 운영 안내](oracle-free-deployment.md) | 단일 프로세스 배포, 로그·백업·복원 |
 | [개인정보·최소 권한 검토](privacy-and-permissions-review.html) | 구현된 보호 조치와 아직 필요한 운영 확인 |
