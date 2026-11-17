@@ -1,7 +1,8 @@
 # 개발·Git 작업 규칙
 
 저장소 전체 작업은 [AGENTS.md](AGENTS.md)를 따른다. 코드 책임과 실행·복구 흐름은
-[아키텍처 문서](docs/architecture.md)를 먼저 읽는다.
+[아키텍처 문서](docs/architecture.md)를 먼저 읽는다. 설치와 설정은
+[개발 및 운영 안내](docs/development.md)를 따른다.
 
 ## 브랜치와 변경 범위
 
